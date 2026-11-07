@@ -84,7 +84,7 @@ function createChatService({ chats, dataDir }) {
   return { create, post, imagePath, publicMessage, readMessage, imageDirs };
 }
 
-function mountChatRoutes(app, { chats, orders, service, rateLimit, adminSummary }) {
+function mountChatRoutes(app, { chats, orders, service, rateLimit, adminSummary, onBuyerMessage = () => {} }) {
   const startLimiter = rateLimit({ windowMs: 60_000, max: 5 });
   const msgLimiter = rateLimit({ windowMs: 60_000, max: 20 });
 
@@ -123,6 +123,7 @@ function mountChatRoutes(app, { chats, orders, service, rateLimit, adminSummary 
     const m = service.readMessage(req.body);
     if (m.error) return res.status(400).json({ error: m.error });
     const msg = service.post(req.params.id, { from: 'buyer', ...m });
+    onBuyerMessage(chats.get(req.params.id), msg);
     res.status(201).json(service.publicMessage(msg, `/api/chats/${req.params.id}`));
   });
 

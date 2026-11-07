@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>Admin — Diamonds</title>
+  <title>Admin — SOMA Diamonds</title>
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
   <header class="site">
     <div class="wrap">
-      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> Diamonds <span style="color:var(--muted);font-weight:500;font-size:14px">admin</span></a>
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> <span><b class="brand-soma">SOMA</b> Diamonds</span> <span style="color:var(--muted);font-weight:500;font-size:14px">admin</span></a>
       <nav><a href="#" id="logout" hidden>Log out</a></nav>
     </div>
   </header>
@@ -29,6 +29,7 @@
       <div class="tabs admin-tabs" role="tablist">
         <button class="tab active" data-view="chats" role="tab">💬 Chats <span class="count-badge" id="chatUnread" hidden></span></button>
         <button class="tab" data-view="orders" role="tab">🧾 Orders <span class="count-badge" id="verifyCount" hidden></span></button>
+        <button class="tab" id="alertsBtn" type="button" style="margin-left:auto" title="Play a sound and show a pop-up when a buyer pays or writes">🔔 Alerts off</button>
       </div>
 
       <!-- Orders -->
@@ -68,7 +69,7 @@
       completed: 'Delivered', payment_failed: 'Rejected', failed: 'Delivery failed',
     };
     let token = '';
-    try { token = sessionStorage.getItem('adminToken') || ''; } catch {}
+    try { token = localStorage.getItem('adminToken') || ''; } catch {}
     const view = { name: 'chats', chatId: null, lastId: 0 };
     const imageCache = new Map();
 
@@ -95,7 +96,7 @@
 
     function logout() {
       token = '';
-      try { sessionStorage.removeItem('adminToken'); } catch {}
+      try { localStorage.removeItem('adminToken'); } catch {}
       $('panel').hidden = true; $('logout').hidden = true; $('login').hidden = false;
     }
 
@@ -194,16 +195,54 @@
 
     async function loadCounts() {
       const toVerify = await api('/api/admin/orders?status=awaiting_verification');
+      checkAlerts('verify', toVerify.length, 'New payment to verify', 'A buyer submitted a payment.');
       $('verifyCount').hidden = !toVerify.length;
       $('verifyCount').textContent = toVerify.length;
     }
 
     // ---- Chats view -----------------------------------------------------------
+    // ---- Sound + pop-up alerts while this page is open ------------------------
+    const alerts = { on: false, lastUnread: null, lastVerify: null, ctx: null };
+    try { alerts.on = localStorage.getItem('adminAlerts') === '1'; } catch {}
+    function paintAlertsBtn() { $('alertsBtn').textContent = alerts.on ? '🔔 Alerts on' : '🔕 Alerts off'; }
+    function beep() {
+      try {
+        alerts.ctx = alerts.ctx || new AudioContext();
+        const o = alerts.ctx.createOscillator(), g = alerts.ctx.createGain();
+        o.frequency.value = 880; g.gain.value = 0.15;
+        o.connect(g).connect(alerts.ctx.destination);
+        o.start(); o.stop(alerts.ctx.currentTime + 0.25);
+      } catch {}
+    }
+    function ping(title, body) {
+      if (!alerts.on) return;
+      beep();
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        try { new Notification(title, { body, icon: '/logo.svg' }); } catch {}
+      }
+    }
+    function checkAlerts(kind, value, title, body) {
+      const key = kind === 'unread' ? 'lastUnread' : 'lastVerify';
+      if (alerts[key] !== null && value > alerts[key]) ping(title, body);
+      alerts[key] = value;
+    }
+    $('alertsBtn').addEventListener('click', async () => {
+      alerts.on = !alerts.on;
+      try { localStorage.setItem('adminAlerts', alerts.on ? '1' : '0'); } catch {}
+      if (alerts.on) {
+        beep();
+        if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+      }
+      paintAlertsBtn();
+    });
+    paintAlertsBtn();
+
     async function loadThreads() {
       const { chats, unreadTotal } = await api('/api/admin/chats');
+      checkAlerts('unread', unreadTotal, 'New message', 'A buyer sent a message.');
       $('chatUnread').hidden = !unreadTotal;
       $('chatUnread').textContent = unreadTotal;
-      document.title = (unreadTotal ? `(${unreadTotal}) ` : '') + 'Admin — Diamonds';
+      document.title = (unreadTotal ? `(${unreadTotal}) ` : '') + 'Admin — SOMA Diamonds';
       const box = $('threads');
       box.innerHTML = '';
       if (!chats.length) box.innerHTML = '<p class="hint" style="padding:12px">No chats yet.</p>';
@@ -406,17 +445,28 @@
       ]);
     }
 
+    // Links from Telegram alerts: /admin.html#chat=<id>
+    async function openFromHash() {
+      const m = /^#chat=(.+)$/.exec(location.hash);
+      if (!m || !token) return;
+      history.replaceState(null, '', location.pathname);
+      switchView('chats');
+      await openChat(decodeURIComponent(m[1])).catch((e) => alert(e.message));
+    }
+    window.addEventListener('hashchange', openFromHash);
+
     async function enter() {
       try {
         await refresh();
         $('login').hidden = true; $('panel').hidden = false; $('logout').hidden = false;
+        openFromHash();
       } catch (e) { $('loginErr').textContent = e.message; }
     }
 
     $('loginForm').addEventListener('submit', (e) => {
       e.preventDefault();
       token = $('token').value;
-      try { sessionStorage.setItem('adminToken', token); } catch {}
+      try { localStorage.setItem('adminToken', token); } catch {}
       enter();
     });
     $('logout').addEventListener('click', (e) => { e.preventDefault(); logout(); });

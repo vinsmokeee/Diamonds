@@ -241,3 +241,4 @@ body.has-chat { padding-bottom: 80px; }
   .admin-chat.open .chat-thread { display: flex; }
   .thread-back { display: block; }
 }
+.brand-soma { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 900; letter-spacing: .5px; }

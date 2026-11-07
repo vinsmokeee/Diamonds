@@ -12,6 +12,6 @@ const app = createApp({
 });
 
 app.listen(config.port, () => {
-  console.log(`Diamonds running at ${config.baseUrl} (payment: ${providers.payment.name}, supplier: ${providers.supplier.name})`);
+  console.log(`SOMA Diamonds running at ${config.baseUrl} (payment: ${providers.payment.name}, supplier: ${providers.supplier.name})`);
   if (!config.adminToken) console.log('ADMIN_TOKEN is not set — the admin page is disabled.');
 });

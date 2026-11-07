@@ -1,4 +1,4 @@
-# Diamonds — MLBB Diamond Top-Up for Bhutan
+# SOMA Diamonds — MLBB Diamond Top-Up for Bhutan
 
 A storefront where players in Bhutan buy Mobile Legends: Bang Bang diamonds in
 **Ngultrum (Nu.)** and pay by scanning the shop's **bank QR code** in their banking app.
@@ -40,6 +40,27 @@ A chat button sits in the bottom-right of every page. Buyers can send text and p
 - **Photos are private.** A buyer can only open photos in their own chat, and you need your admin password to open them.
 
 Chat history is checked every few seconds, so there's no extra service to run.
+
+## Telegram alerts (payment details straight to your phone)
+
+When a buyer presses **I have paid**, your Telegram receives a message with the amount, journal number, game name, User ID and Zone ID. The receipt screenshot is attached, and there's a link that opens that chat in the admin page. New chat messages from buyers are sent to you too.
+
+Setup takes about 5 minutes:
+
+1. **Create a bot.** In Telegram, open **@BotFather**, send `/newbot` and follow the prompts. It gives you a **token** like `123456:ABC-...`.
+2. **Message your bot.** Open your new bot and send it any message, for example "hi".
+3. **Find your chat ID** with `TELEGRAM_BOT_TOKEN=<token> npm run telegram:chat-id`. This prints `TELEGRAM_CHAT_ID=...`.
+4. **Add both values to your settings:**
+   ```
+   TELEGRAM_BOT_TOKEN=123456:ABC-...
+   TELEGRAM_CHAT_ID=987654321
+   TELEGRAM_ALERTS=payments,messages     # add ",orders" to also get an alert for every new unpaid order
+   ```
+5. **Restart the site.**
+
+**Alerts to a group:** to alert several people, such as you and a helper, add the bot to a Telegram group, send a message there, and run step 3 again. Use the group's ID, which is a negative number.
+
+**Admin page sound:** `/admin.html` also has a **🔔 Alerts** button. While the admin page is open, it plays a sound and shows a pop-up for new payments and messages.
 
 **Built-in protections**
 - Prices are set on the server in `server/catalog.js`, so the buyer can't change the amount.

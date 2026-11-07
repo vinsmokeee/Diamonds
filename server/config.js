@@ -20,6 +20,14 @@ const config = {
     qrImage: process.env.PAY_QR_IMAGE || '/payment-qr.svg',
   },
   support: process.env.SUPPORT_CONTACT || '',
+
+  // Telegram alerts to the shop owner (optional)
+  telegram: {
+    token: process.env.TELEGRAM_BOT_TOKEN || '',
+    chatId: process.env.TELEGRAM_CHAT_ID || '',
+    // Which events: payments | orders | messages (comma-separated)
+    events: (process.env.TELEGRAM_ALERTS || 'payments,messages').split(',').map((x) => x.trim()),
+  },
 };
 
 if (process.env.NODE_ENV === 'production') {

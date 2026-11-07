@@ -5,6 +5,7 @@ const config = require('./config');
 const catalog = require('./catalog');
 const { saveDataUrlImage } = require('./images');
 const { createChatService, mountChatRoutes, cleanName } = require('./chat');
+const { createNotifier } = require('./notify');
 
 const USER_ID = /^\d{5,12}$/;
 const ZONE_ID = /^\d{1,6}$/;
@@ -56,11 +57,13 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true }) {
+function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true, notifier = null }) {
   const receiptsDir = dataDir ? path.join(dataDir, 'receipts') : null;
   const chat = createChatService({ chats, dataDir });
   const limiter = (opts) => rateLimit({ ...opts, enabled: rateLimits });
   const money = (n) => `${config.currencySymbol} ${n.toLocaleString('en-IN')}`;
+  const alerts = notifier || createNotifier({ ...config.telegram, baseUrl: config.baseUrl, money });
+  const alertOn = (event) => (config.telegram.events || []).includes(event);
   const notify = (order, text, audience) => order && order.chatId && chat.post(order.chatId, { from: 'system', text, audience });
   const app = express();
   app.disable('x-powered-by');
@@ -146,6 +149,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
       else c = chat.create({ gameName, userId, zoneId, orderId: order.id });
       store.update(order.id, { chatId: c.id });
       notify(order, `🛒 New order: ${order.item} · ${money(order.amount)}`, 'admin');
+      if (alertOn('orders')) alerts.newOrder(order);
 
       const checkout = await payment.createCheckout(order);
       if (checkout.reference) store.update(order.id, { paymentRef: checkout.reference });
@@ -195,6 +199,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
         image: receiptFile ? `receipts/${receiptFile}` : null,
       });
     }
+    if (alertOn('payments')) alerts.paymentSubmitted(updated, receiptFile ? path.join(receiptsDir, receiptFile) : null);
     res.json(publicOrder(updated));
   });
 
@@ -288,7 +293,14 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     res.json(o);
   });
 
-  mountChatRoutes(app, { chats, orders: store, service: chat, rateLimit: limiter, adminSummary: (o) => o });
+  mountChatRoutes(app, {
+    chats,
+    orders: store,
+    service: chat,
+    rateLimit: limiter,
+    adminSummary: (o) => o,
+    onBuyerMessage: (c, msg) => alertOn('messages') && alerts.buyerMessage(c, msg, chat.imagePath(msg)),
+  });
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
