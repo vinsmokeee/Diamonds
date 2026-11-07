@@ -106,6 +106,12 @@ server/store.js    JSON-file storage for orders + chats (move to SQLite/Postgres
 server/providers/  payment + supplier adapters
 ```
 
+## In-game name popup
+
+When a player enters their User ID and Zone ID and ticks **"I have double-checked…"**, the site looks up their **in-game name** and shows it ("✓ In-game name: Tashi. Is this you?"). A wrong ID shows **"Player not found"** and they can't pay. Names are cached for 10 minutes.
+
+This uses FazerCards' free nickname check. It only needs `FAZER_API_KEY`, and works even while you deliver diamonds by hand. If the check is down, buyers can still order.
+
 ## Automatic delivery with FazerCards
 
 When this is set up, pressing **✓ Payment received** tells FazerCards to send the diamonds straight to the player's User ID and Zone ID. You don't have to top up by hand.

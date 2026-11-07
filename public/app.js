@@ -3,7 +3,8 @@
   const GEM = '<svg class="gem" viewBox="0 0 32 32" aria-hidden="true"><path d="M8 4h16l6 8-14 17L2 12z" fill="#4fc3ff"/><path d="M2 12h28L16 29z" fill="#8b5cf6" opacity=".55"/></svg>';
   const PASS = '<svg class="gem" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="7" width="26" height="18" rx="4" fill="#ffc85a"/><path d="M3 13h26" stroke="#2a1c00" stroke-opacity=".35" stroke-width="2"/></svg>';
 
-  const state = { catalog: null, tab: 'diamonds', pkg: null, player: null, checkedKey: null };
+  // player: in-game name found for checkedKey; notFound: lookup said the ID doesn't exist.
+  const state = { catalog: null, tab: 'diamonds', pkg: null, player: null, checkedKey: null, looking: false, notFound: false };
 
   const money = (n) => window.formatMoney(n, state.catalog.currencySymbol);
   const idKey = () => `${$('userId').value.trim()}|${$('zoneId').value.trim()}`;
@@ -37,19 +38,14 @@
   }
 
   function accountReady() {
-    if (state.catalog.verifiesPlayer) return state.player && state.checkedKey === idKey();
-    return idsValid() && $('confirmId').checked;
+    return idsValid() && $('confirmId').checked && !state.looking && !state.notFound;
   }
 
   function update() {
     const uid = $('userId').value.trim();
     const zid = $('zoneId').value.trim();
     let who = '—';
-    if (state.catalog.verifiesPlayer) {
-      if (state.player && state.checkedKey === idKey()) who = `${state.player} (${uid})`;
-    } else if (idsValid()) {
-      who = `${uid} (${zid})`;
-    }
+    if (idsValid()) who = state.player && state.checkedKey === idKey() ? `${state.player} · ${uid} (${zid})` : `${uid} (${zid})`;
     $('sumPlayer').textContent = who;
     $('sumItem').textContent = state.pkg ? state.pkg.label : '—';
     $('sumTotal').textContent = state.pkg ? money(state.pkg.price) : '—';
@@ -67,26 +63,47 @@
     return data;
   }
 
-  async function checkPlayer() {
-    if (!state.catalog.verifiesPlayer) return;
+  // Show the player's in-game name as soon as they confirm their ID.
+  let lookupTimer = null;
+  let lookupSeq = 0;
+  function showPlayer(cls, text) {
     const box = $('playerBox');
-    const btn = $('checkBtn');
-    state.player = null;
-    btn.disabled = true;
-    btn.textContent = 'Checking…';
+    box.className = cls ? `player ${cls}` : 'player';
+    box.textContent = text || '';
+  }
+
+  async function lookupName() {
+    if (!state.catalog.verifiesPlayer || !idsValid() || !$('confirmId').checked) return;
+    const key = idKey();
+    if (state.checkedKey === key && (state.player || state.notFound)) return;
+    const seq = ++lookupSeq;
+    state.looking = true;
+    state.notFound = false;
+    showPlayer('wait', 'Looking up your in-game name…');
+    update();
     try {
       const { nickname } = await api('/api/players/lookup', { userId: $('userId').value.trim(), zoneId: $('zoneId').value.trim() });
-      state.player = nickname;
-      state.checkedKey = idKey();
-      box.className = 'player ok';
-      box.textContent = `✓ Found: ${nickname}`;
+      if (seq !== lookupSeq) return;
+      state.checkedKey = key;
+      state.player = nickname || null;
+      if (nickname) showPlayer('ok', `✓ In-game name: ${nickname}. Is this you?`);
+      else showPlayer('', '');
     } catch (e) {
-      box.className = 'player err';
-      box.textContent = e.message;
+      if (seq !== lookupSeq) return;
+      state.checkedKey = key;
+      state.player = null;
+      if (/not found/i.test(e.message)) {
+        state.notFound = true;
+        showPlayer('err', '✕ Player not found. Check your User ID and Zone ID.');
+        $('confirmId').checked = false;
+      } else {
+        showPlayer('', 'Could not check the name right now. Make sure your ID is correct.');
+      }
     } finally {
-      btn.disabled = false;
-      btn.textContent = 'Check';
-      update();
+      if (seq === lookupSeq) {
+        state.looking = false;
+        update();
+      }
     }
   }
 
@@ -114,13 +131,26 @@
   for (const id of ['userId', 'zoneId']) {
     $(id).addEventListener('input', (e) => {
       e.target.value = e.target.value.replace(/\D/g, '');
-      if (state.checkedKey !== idKey()) $('playerBox').className = 'player';
+      if (state.checkedKey !== idKey()) {
+        lookupSeq++;
+        Object.assign(state, { player: null, notFound: false, looking: false });
+        showPlayer('', '');
+        // Already ticked and still typing: look up again once they stop.
+        clearTimeout(lookupTimer);
+        lookupTimer = setTimeout(lookupName, 700);
+      }
       update();
     });
-    $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') checkPlayer(); });
   }
-  $('confirmId').addEventListener('change', update);
-  $('checkBtn').addEventListener('click', checkPlayer);
+  $('confirmId').addEventListener('change', () => {
+    if ($('confirmId').checked) {
+      if (!idsValid()) showPlayer('err', 'Enter your User ID and Zone ID first.');
+      lookupName();
+    } else if (!state.notFound) {
+      showPlayer('', '');
+    }
+    update();
+  });
   $('buyBtn').addEventListener('click', buy);
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach((x) => x.classList.toggle('active', x === t));
@@ -130,8 +160,7 @@
 
   api('/api/catalog').then((c) => {
     state.catalog = c;
-    if (c.verifiesPlayer) $('checkBtn').hidden = false;
-    else { $('confirmRow').hidden = false; $('fields').style.gridTemplateColumns = '2fr 1fr'; }
+    $('fields').style.gridTemplateColumns = '2fr 1fr';
     if (c.support) $('supportLine').textContent = `Help: ${c.support}`;
     renderPackages();
     update();

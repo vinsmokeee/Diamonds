@@ -9,6 +9,7 @@ const app = createApp({
   chats: new JsonStore(path.join(config.dataDir, 'chats.json')),
   dataDir: config.dataDir,
   ...providers,
+  playerLookup: providers.playerLookup,
 });
 
 // Automatic suppliers: check unfinished top-ups every 30 s (backup for webhooks).

@@ -6,13 +6,13 @@ const { createApp } = require('../server/app');
 const { JsonStore } = require('../server/store');
 const { createReceiptReader } = require('../server/receipts');
 
-async function start({ payment, supplier, notifier, priceGuard, receiptReader }) {
+async function start({ payment, supplier, playerLookup, notifier, priceGuard, receiptReader }) {
   const store = new JsonStore(null);
   const chats = new JsonStore(null);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diamonds-'));
   const receiptsDir = path.join(dataDir, 'receipts');
   const app = createApp({
-    store, chats, payment, supplier, dataDir, notifier, priceGuard, rateLimits: false,
+    store, chats, payment, supplier, playerLookup, dataDir, notifier, priceGuard, rateLimits: false,
     // OCR is slow-ish; only the receipts test turns it on.
     receiptReader: receiptReader || createReceiptReader({ enabled: false }),
   });

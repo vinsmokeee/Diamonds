@@ -288,3 +288,6 @@ nav { white-space: nowrap; }
   .nav-wide { display: none; }
   nav a { margin-left: 14px; }
 }
+
+.player.wait { display: block; background: rgba(79,195,255,.08); border: 1px solid rgba(79,195,255,.3); color: var(--accent); }
+.player:not(.ok):not(.err):not(.wait):not(:empty) { display: block; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }

@@ -67,7 +67,7 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true, notifier = null, priceGuard = null, receiptReader = null }) {
+function createApp({ store, chats, payment, supplier, playerLookup = null, dataDir = null, rateLimits = true, notifier = null, priceGuard = null, receiptReader = null }) {
   const receiptsDir = dataDir ? path.join(dataDir, 'receipts') : null;
   const chat = createChatService({ chats, dataDir });
   const limiter = (opts) => rateLimit({ ...opts, enabled: rateLimits });
@@ -76,6 +76,20 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
   const alertOn = (event) => (config.telegram.events || []).includes(event);
   const prices = priceGuard || createPriceGuard({ supplier, ...config.pricing });
   const receipts = receiptReader || createReceiptReader({ enabled: config.receiptOcr });
+
+  // In-game name lookup (shown to the buyer as soon as they confirm their ID).
+  const lookup = playerLookup || (supplier.verifiesPlayer ? supplier : null);
+  const nameCache = new Map(); // "user|zone" -> { result, at }
+  async function lookupPlayer(userId, zoneId) {
+    if (!lookup) return supplier.lookupPlayer(userId, zoneId);
+    const key = `${userId}|${zoneId}`;
+    const hit = nameCache.get(key);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.result;
+    const result = await lookup.lookupPlayer(userId, zoneId);
+    nameCache.set(key, { result, at: Date.now() });
+    if (nameCache.size > 5000) nameCache.delete(nameCache.keys().next().value);
+    return result;
+  }
 
   // ---- Receipts: a journal number / screenshot can only ever pay for one order ----
   const uniq = (arr) => [...new Set(arr.filter(Boolean))];
@@ -153,7 +167,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
       currencySymbol: config.currencySymbol,
       // Packages paused by the price guard (cost went up) are hidden from buyers.
       packages: catalog.packages.filter((p) => !prices.isPaused(p.id)).map((p) => ({ ...p, label: catalog.label(p) })),
-      verifiesPlayer: supplier.verifiesPlayer ?? !supplier.manual,
+      verifiesPlayer: Boolean(lookup),
       support: config.support,
     });
   });
@@ -170,7 +184,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
       return res.status(400).json({ error: 'Enter a valid User ID and Zone ID (numbers only).' });
     }
     try {
-      const r = await supplier.lookupPlayer(userId, zoneId);
+      const r = await lookupPlayer(userId, zoneId);
       if (!r.ok) return res.status(404).json({ error: r.error || 'Player not found' });
       res.json({ nickname: r.nickname });
     } catch (e) {
@@ -193,7 +207,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     try {
       let player;
       try {
-        player = await supplier.lookupPlayer(userId, zoneId);
+        player = await lookupPlayer(userId, zoneId);
       } catch (e) {
         console.error('player lookup unavailable, continuing without nickname', e.message);
         player = { ok: true, nickname: null };
