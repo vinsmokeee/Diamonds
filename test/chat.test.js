@@ -83,3 +83,24 @@ test('automatic notes are unread only for the other side', async () => {
   assert.equal(t.chats.get(chatId).adminUnread, 0, "admin's own action is not unread for admin");
   assert.equal(t.chats.get(chatId).buyerUnread, 1);
 });
+
+test('a photo sent in the chat while an order is unpaid counts as the payment receipt', async () => {
+  const { orderId, chatId } = await json(await t.post('/api/orders', { ...me, userId: '44443333', packageId: 'dm-86' }));
+  await t.post(`/api/chats/${chatId}/messages`, { text: 'paid!' }); // text alone changes nothing
+  assert.equal(t.store.get(orderId).status, 'pending_payment');
+  await t.post(`/api/chats/${chatId}/messages`, { image: PNG });
+  const o = t.store.get(orderId);
+  assert.equal(o.status, 'awaiting_verification');
+  assert.ok(o.receiptChatMessageId);
+  const texts = t.chats.get(chatId).messages.map((m) => m.text);
+  assert.ok(texts.some((x) => /Got your receipt for 86 Diamonds/.test(x)));
+  // a second photo does not change anything further
+  await t.post(`/api/chats/${chatId}/messages`, { image: PNG });
+  assert.equal(t.store.get(orderId).status, 'awaiting_verification');
+});
+
+test('admin can approve an unpaid order directly when the money is already in the bank', async () => {
+  const { orderId } = await json(await t.post('/api/orders', { ...me, userId: '44445555', packageId: 'dm-86' }));
+  assert.equal((await t.post(`/api/admin/orders/${orderId}/approve`, {}, t.admin)).status, 200);
+  assert.equal(t.store.get(orderId).status, 'processing');
+});

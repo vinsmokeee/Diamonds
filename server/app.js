@@ -388,7 +388,8 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
   // Each action returns the updated order and posts its own chat notes.
   const ACTIONS = {
     // Payment seen in the bank app -> start delivery.
-    approve: (id) => deliver(id, 'awaiting_verification', {}),
+    // Also allowed straight from "unpaid": e.g. the money is in the bank but the buyer sent nothing.
+    approve: (id) => (store.get(id)?.status === 'pending_payment' ? deliver(id, 'pending_payment', {}) : deliver(id, 'awaiting_verification', {})),
     reject: (id, note) => {
       const o = store.transition(id, 'awaiting_verification', 'payment_failed', { note: note || 'Payment could not be verified.' });
       if (o) notify(o, `❌ Payment could not be verified${note ? `: ${note}` : '.'}`, 'buyer');
@@ -414,13 +415,33 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     res.json(store.get(req.params.id));
   });
 
+  // A photo sent in the chat while the buyer has an unpaid order counts as their payment receipt.
+  function acceptChatReceipt(c, msg) {
+    const orderId = [...(c.orderIds || [])].reverse().find((id) => store.get(id)?.status === 'pending_payment');
+    if (!orderId) return;
+    const o = store.transition(orderId, 'pending_payment', 'awaiting_verification', {
+      paymentSubmittedAt: new Date().toISOString(),
+      receiptChatMessageId: msg.id,
+    });
+    if (!o) return;
+    chat.post(c.id, {
+      from: 'system',
+      audience: 'admin',
+      text: `⏳ Got your receipt for ${o.item} (${money(o.amount)}). We are checking your payment, and your diamonds will be sent automatically once it is confirmed.`,
+    });
+    if (alertOn('payments')) alerts.paymentSubmitted(o, chat.imagePath(msg));
+  }
+
   mountChatRoutes(app, {
     chats,
     orders: store,
     service: chat,
     rateLimit: limiter,
     adminSummary: (o) => o,
-    onBuyerMessage: (c, msg) => alertOn('messages') && alerts.buyerMessage(c, msg, chat.imagePath(msg)),
+    onBuyerMessage: (c, msg) => {
+      if (msg.image) acceptChatReceipt(c, msg);
+      if (alertOn('messages')) alerts.buyerMessage(c, msg, chat.imagePath(msg));
+    },
   });
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));

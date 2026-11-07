@@ -231,6 +231,8 @@
       preview.hidden = true;
       addMessage(m);
       scrollDown();
+      // A photo can be the payment receipt: the server then marks the order as paid-pending-check.
+      if (m.image) setTimeout(() => { poll(); resumePending({ force: true }); }, 300);
     } catch (ex) { err.textContent = ex.message; }
     state.sending = false;
     compose.classList.remove('sending');
@@ -331,7 +333,7 @@
     if (Date.now() - (p.leftAt || Date.now()) > 3 * 24 * 3600 * 1000) { pending.clear(); return false; }
     try {
       const o = await api(`/api/orders/${encodeURIComponent(p.id)}`);
-      if (o.status !== 'pending_payment') { pending.clear(); return false; }
+      if (o.status !== 'pending_payment') { pending.clear(); hidePaymentCard(); return false; }
       showPaymentCard({ ...p, amount: o.amount, item: o.item, chatId: o.chatId || p.chatId });
       return true;
     } catch (e) {

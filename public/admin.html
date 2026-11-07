@@ -172,6 +172,12 @@
       const act = document.createElement('div');
       act.className = 'actions';
       const call = (action, note) => api(`/api/admin/orders/${encodeURIComponent(o.id)}/${action}`, { note });
+      if (o.status === 'pending_payment') {
+        act.append(button('✓ Paid (I see it in the bank)', 'ghost', () => {
+          if (!confirm('No receipt was sent for this order. Approve only if the money is in your bank account.')) throw new Error('Cancelled');
+          return call('approve');
+        }));
+      }
       if (o.status === 'awaiting_verification') {
         act.append(button('✓ Payment received', 'success', () => call('approve')));
         act.append(button('✕ Reject', 'danger', () => {
