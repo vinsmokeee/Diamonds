@@ -40,10 +40,17 @@
 
 ## Waiting on: funding the supplier
 
-FazerCards only accepts **USDT** (BEP20, TON, TRC20 or Aptos), with a minimum of $3. Balance is **$0**. Options:
-1. **Get USDT:** for example through a friend or relative who has some, paying them in Nu. Use BEP20 or TON for low fees.
-2. **Find a supplier you can pay another way:** for example an Indian top-up seller that takes UPI or RuPay and has a reseller API. Check with your bank that your card works on Indian sites. Send Claude the supplier's API docs to connect it.
-3. **Keep selling with manual delivery:** tell Claude your real cost per pack so prices still make a profit.
+FazerCards only accepts **USDT** (BEP20, TON, TRC20 or Aptos), with a minimum of $3. Balance is **$0**.
+
+**Chosen plan:** the owner has **BoB and BNB Visa cards that work internationally**.
+1. **Buy USDT with the Visa card:** use the Binance or Trust Wallet app, on the **BEP20 / BNB Smart Chain** network. Identity check (CID/passport) is needed, card fees are about 2–4%, and the minimum purchase is often around $15–20. First check with the bank or RMA that buying crypto is allowed. Some banks block card payments to crypto sites.
+2. **Note the real rate:** write down how many Nu. the bank took and how much USDT arrived.
+3. **Send it to FazerCards:** Balance → add funds → **USDT (BEP20)** → send the exact amount to the address shown, on the same network.
+4. **Then follow "When funds are ready" below.**
+
+**Checked and not better:** other API suppliers (MooGold, ALU, GoXtop) also take **USDT only**. Card-paying shops (SEAGM, Joytify, Codashop) have no reseller API and charge retail prices. FazerCards stays the supplier.
+
+**Fallback:** keep selling with manual delivery, and tell Claude your real cost per pack so prices still make a profit.
 
 ## When funds are ready: switch on automatic delivery
 
