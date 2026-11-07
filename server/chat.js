@@ -111,9 +111,8 @@ function mountChatRoutes(app, { chats, orders, service, rateLimit, adminSummary,
     const gameName = cleanName(req.body.gameName);
     const userId = String(req.body.userId || '').trim();
     const zoneId = String(req.body.zoneId || '').trim();
-    if (!gameName) return res.status(400).json({ error: 'Enter your game name.' });
     if (!USER_ID.test(userId) || !ZONE_ID.test(zoneId)) return res.status(400).json({ error: 'Enter a valid User ID and Zone ID.' });
-    const c = service.create({ gameName, userId, zoneId });
+    const c = service.create({ gameName: gameName || `Player ${userId}`, userId, zoneId });
     res.status(201).json(buyerView(c, 0));
   });
 

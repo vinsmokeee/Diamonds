@@ -23,8 +23,7 @@
         <button class="chat-close" type="button" aria-label="Close chat">✕</button>
       </header>
       <form class="chat-start" hidden>
-        <p>Tell us who you are so we can find your account and payment.</p>
-        <label>Game name<input name="gameName" type="text" maxlength="30" required autocomplete="nickname"></label>
+        <p>Enter your game ID so we can find your account and payment.</p>
         <div class="chat-row">
           <label>User ID<input name="userId" type="text" inputmode="numeric" maxlength="12" required></label>
           <label>Zone ID<input name="zoneId" type="text" inputmode="numeric" maxlength="6" required></label>
@@ -118,7 +117,7 @@
     compose.hidden = !hasChat;
     if (!hasChat) {
       // Prefill from the storefront form when the buyer already typed their ID.
-      for (const [name, id] of [['userId', 'userId'], ['zoneId', 'zoneId'], ['gameName', 'gameName']]) {
+      for (const [name, id] of [['userId', 'userId'], ['zoneId', 'zoneId']]) {
         const src = document.getElementById(id);
         if (src && src.value && !startForm.elements[name].value) startForm.elements[name].value = src.value;
       }
@@ -138,7 +137,8 @@
     if (!state.chatId) return;
     try {
       const c = await api(`/api/chats/${encodeURIComponent(state.chatId)}?after=${state.lastId}${state.open ? '&read=1' : ''}`);
-      q('.chat-who').textContent = `${c.gameName} · ${c.userId} (${c.zoneId})`;
+      const realName = c.gameName && c.gameName !== `Player ${c.userId}` ? `${c.gameName} · ` : '';
+      q('.chat-who').textContent = `${realName}ID ${c.userId} (${c.zoneId})`;
       const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
       welcome();
       c.messages.forEach(addMessage);
@@ -184,7 +184,6 @@
     err.textContent = '';
     try {
       const c = await api('/api/chats', {
-        gameName: startForm.elements.gameName.value.trim(),
         userId: startForm.elements.userId.value.trim(),
         zoneId: startForm.elements.zoneId.value.trim(),
       });

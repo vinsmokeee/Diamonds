@@ -62,7 +62,8 @@ test('placing an order reuses the open chat for the same account', async () => {
 });
 
 test('validation', async () => {
-  assert.equal((await t.post('/api/chats', { ...me, gameName: '' })).status, 400);
+  const anon = await (await t.post('/api/chats', { userId: '12121212', zoneId: '1' })).json();
+  assert.equal(anon.gameName, 'Player 12121212', 'no game name needed');
   assert.equal((await t.post('/api/chats', { ...me, userId: 'abc' })).status, 400);
   const c = await json(await t.post('/api/chats', me));
   assert.equal((await t.post(`/api/chats/${c.id}/messages`, {})).status, 400);

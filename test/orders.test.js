@@ -38,9 +38,12 @@ test('order uses server-side price, ignores client price', async () => {
   assert.equal(o.status, 'pending_payment');
 });
 
-test('rejects unknown package and missing game name', async () => {
+test('rejects unknown package; game name is optional (looked-up nickname is used)', async () => {
   assert.equal((await t.post('/api/orders', { ...validOrder, packageId: 'nope' })).status, 400);
-  assert.equal((await t.post('/api/orders', { ...validOrder, gameName: '   ' })).status, 400);
+  const r = await t.post('/api/orders', { userId: '123456789', zoneId: '2001', packageId: 'dm-86' });
+  assert.equal(r.status, 201);
+  const o = await (await fetch(`${t.base}/api/orders/${(await r.json()).orderId}`)).json();
+  assert.equal(o.gameName, 'Tester', 'nickname from the player lookup');
 });
 
 test('webhook with bad signature is rejected', async () => {

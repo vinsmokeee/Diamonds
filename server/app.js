@@ -189,7 +189,6 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     if (!USER_ID.test(userId) || !ZONE_ID.test(zoneId)) return res.status(400).json({ error: 'Invalid User ID or Zone ID.' });
     if (!pkg) return res.status(400).json({ error: 'Choose a package.' });
     if (prices.isPaused(pkg.id)) return res.status(409).json({ error: 'This package is temporarily unavailable. Please choose another one.' });
-    if (!gameName) return res.status(400).json({ error: 'Enter your game name.' });
 
     try {
       let player;
@@ -200,6 +199,8 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
         player = { ok: true, nickname: null };
       }
       if (!player.ok) return res.status(404).json({ error: player.error || 'Player not found' });
+      // Players only enter their IDs; show their in-game name when the supplier can look it up.
+      const displayName = gameName || cleanName(player.nickname) || `Player ${userId}`;
 
       const now = new Date().toISOString();
       const order = store.create({
@@ -212,7 +213,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
         userId,
         zoneId,
         nickname: player.nickname || null,
-        gameName,
+        gameName: displayName,
         paymentProvider: payment.name,
         createdAt: now,
         updatedAt: now,
@@ -220,8 +221,8 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
 
       // Reuse the buyer's open chat if it is for the same account, otherwise start one.
       let c = req.body.chatId ? chats.get(String(req.body.chatId)) : null;
-      if (c && c.userId === userId && c.zoneId === zoneId) chats.update(c.id, { orderIds: [...c.orderIds, order.id], gameName });
-      else c = chat.create({ gameName, userId, zoneId, orderId: order.id });
+      if (c && c.userId === userId && c.zoneId === zoneId) chats.update(c.id, { orderIds: [...c.orderIds, order.id], gameName: displayName });
+      else c = chat.create({ gameName: displayName, userId, zoneId, orderId: order.id });
       store.update(order.id, { chatId: c.id });
       notify(order, `🛒 New order: ${order.item} · ${money(order.amount)}`, 'admin');
       if (alertOn('orders')) alerts.newOrder(order);

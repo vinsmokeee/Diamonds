@@ -142,3 +142,11 @@ test('underpayment: admin records what arrived, buyer is asked for the rest, the
   assert.equal(t.store.get(orderId).status, 'processing');
   assert.deepEqual(t.store.get(orderId).partialPayments.map((x) => x.txnRef), ['UNDER-001']);
 });
+
+test('orders without a game name show "Player <ID>" (manual supplier has no nickname lookup)', async () => {
+  const r = await t.post('/api/orders', { userId: '33445566', zoneId: '2001', packageId: 'dm-86' });
+  assert.equal(r.status, 201);
+  const { orderId, chatId } = await r.json();
+  assert.equal(t.store.get(orderId).gameName, 'Player 33445566');
+  assert.equal(t.chats.get(chatId).gameName, 'Player 33445566');
+});
