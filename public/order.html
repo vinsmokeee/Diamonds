@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Order Status — Diamonds</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> Diamonds</a>
+      <nav><a href="/">Top up</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="card status-card" id="lookup" hidden>
+      <h2 class="step-title" style="justify-content:center">Track your order</h2>
+      <form id="lookupForm" style="display:flex;gap:10px">
+        <input id="orderIdInput" type="text" placeholder="Order ID" required>
+        <button class="btn" type="submit">Track</button>
+      </form>
+    </div>
+
+    <div class="card status-card" id="result" hidden>
+      <div class="status-icon" id="icon"></div>
+      <h2 id="title" style="margin:0 0 4px"></h2>
+      <p id="subtitle" style="color:var(--muted);margin:0 0 18px"></p>
+      <div class="summary">
+        <dl>
+          <dt>Order ID</dt><dd id="oId"></dd>
+          <dt>Player</dt><dd id="oPlayer"></dd>
+          <dt>Item</dt><dd id="oItem"></dd>
+          <dt>Paid</dt><dd id="oAmount"></dd>
+          <dt>Created</dt><dd id="oCreated"></dd>
+        </dl>
+      </div>
+      <a class="btn ghost" href="/" style="display:inline-block;text-decoration:none">Top up again</a>
+    </div>
+  </main>
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id);
+    const id = new URLSearchParams(location.search).get('id');
+    const STATES = {
+      pending_payment: ['wait', '…', 'Awaiting payment', 'Complete your payment to continue.'],
+      processing:      ['wait', '<span class="spin">⟳</span>', 'Delivering diamonds', 'Payment received. Sending to your account…'],
+      completed:       ['ok', '✓', 'Delivered!', 'Diamonds have been sent. Restart the game if you don’t see them yet.'],
+      payment_failed:  ['err', '✕', 'Payment not completed', 'No money was taken. You can try again.'],
+      failed:          ['err', '!', 'Delivery problem', 'Payment received but delivery failed. Contact support with your order ID.'],
+    };
+
+    if (!id) {
+      $('lookup').hidden = false;
+      $('lookupForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        location.search = '?id=' + encodeURIComponent($('orderIdInput').value.trim());
+      });
+      return;
+    }
+
+    async function load() {
+      const res = await fetch('/api/orders/' + encodeURIComponent(id));
+      if (!res.ok) {
+        $('result').hidden = false;
+        $('icon').className = 'status-icon err';
+        $('icon').textContent = '?';
+        $('title').textContent = 'Order not found';
+        $('subtitle').textContent = 'Double-check your order ID.';
+        return;
+      }
+      const o = await res.json();
+      const [cls, icon, title, sub] = STATES[o.status] || ['wait', '…', o.status, ''];
+      $('result').hidden = false;
+      $('icon').className = 'status-icon ' + cls;
+      $('icon').innerHTML = icon;
+      $('title').textContent = title;
+      $('subtitle').textContent = o.error && o.status === 'failed' ? o.error : sub;
+      $('oId').textContent = o.id;
+      $('oPlayer').textContent = `${o.nickname} · ${o.userId} (${o.zoneId})`;
+      $('oItem').textContent = o.item;
+      $('oAmount').textContent = new Intl.NumberFormat(undefined, { style: 'currency', currency: o.currency }).format(o.amount / 100);
+      $('oCreated').textContent = new Date(o.createdAt).toLocaleString();
+      if (o.status === 'pending_payment' || o.status === 'processing') setTimeout(load, 3000);
+    }
+    load();
+  })();
+  </script>
+</body>
+</html>

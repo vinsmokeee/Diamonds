@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diamonds — MLBB Diamond Top-Up</title>
+  <meta name="description" content="Top up Mobile Legends: Bang Bang diamonds instantly with your User ID and Zone ID.">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> Diamonds</a>
+      <nav><a href="#faq">FAQ</a><a href="/order.html">Track order</a></nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h1>Mobile Legends <span>Diamond Top-Up</span></h1>
+      <p>Enter your ID, pick a package, pay — diamonds land in your account in minutes.</p>
+      <div class="badges">
+        <span class="badge">⚡ Instant delivery</span>
+        <span class="badge">🔒 Secure checkout</span>
+        <span class="badge">🧾 Order tracking</span>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div>
+        <section class="card" aria-labelledby="s1">
+          <h2 class="step-title" id="s1"><span class="step-num">1</span> Enter your account</h2>
+          <div class="fields">
+            <div><label for="userId">User ID</label><input id="userId" type="text" inputmode="numeric" placeholder="e.g. 123456789" maxlength="12" autocomplete="off"></div>
+            <div><label for="zoneId">Zone ID</label><input id="zoneId" type="text" inputmode="numeric" placeholder="e.g. 2001" maxlength="6" autocomplete="off"></div>
+            <button class="btn ghost" id="checkBtn" type="button">Check</button>
+          </div>
+          <div class="player" id="playerBox" role="status"></div>
+          <p class="hint">Find these in-game: tap your avatar (top-left). Your ID looks like <code>123456789 (2001)</code> — the number in brackets is the Zone ID.</p>
+        </section>
+
+        <section class="card" aria-labelledby="s2">
+          <h2 class="step-title" id="s2"><span class="step-num">2</span> Choose a package</h2>
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-type="diamonds" role="tab">Diamonds</button>
+            <button class="tab" data-type="pass" role="tab">Passes</button>
+          </div>
+          <div class="grid" id="packages"><p class="hint">Loading packages…</p></div>
+        </section>
+
+        <section class="card" aria-labelledby="s3">
+          <h2 class="step-title" id="s3"><span class="step-num">3</span> Payment method</h2>
+          <div class="methods" id="methods"></div>
+        </section>
+
+        <section class="card" aria-labelledby="s4">
+          <h2 class="step-title" id="s4"><span class="step-num">4</span> Receipt email <small style="color:var(--muted);font-weight:400">(optional)</small></h2>
+          <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+        </section>
+
+        <section class="card faq" id="faq">
+          <h2 class="step-title">FAQ</h2>
+          <details><summary>How long does delivery take?</summary><p>Most orders are delivered within 1–5 minutes after payment. Use the order link to track status.</p></details>
+          <details><summary>I entered the wrong ID. What now?</summary><p>Always press “Check” and confirm the nickname before paying. Diamonds sent to a valid but wrong account can’t be reversed.</p></details>
+          <details><summary>Payment went through but no diamonds?</summary><p>Open your order page. If it shows “failed”, contact support with your order ID and we’ll retry or refund.</p></details>
+          <details><summary>Do you need my password?</summary><p>Never. We only need your User ID and Zone ID.</p></details>
+        </section>
+      </div>
+
+      <aside>
+        <div class="card summary">
+          <h2 class="step-title">Order summary</h2>
+          <dl>
+            <dt>Player</dt><dd id="sumPlayer">—</dd>
+            <dt>Item</dt><dd id="sumItem">—</dd>
+            <dt>Payment</dt><dd id="sumMethod">—</dd>
+          </dl>
+          <div class="total"><span>Total</span><span id="sumTotal">—</span></div>
+          <button class="btn block" id="buyBtn" type="button" disabled>Buy now</button>
+          <div class="form-error" id="formError" role="alert"></div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      Diamonds is an independent top-up service and is not affiliated with or endorsed by Moonton.
+      Mobile Legends: Bang Bang is a trademark of its respective owner.
+    </div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

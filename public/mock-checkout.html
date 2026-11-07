@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test Checkout</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="wrap">
+    <div class="card status-card">
+      <p class="badge" style="display:inline-block;color:var(--gold);border-color:var(--gold)">TEST MODE — no real money</p>
+      <h2>Mock payment gateway</h2>
+      <p style="color:var(--muted)">This page stands in for a real payment provider while you develop.</p>
+      <div class="summary"><dl>
+        <dt>Item</dt><dd id="item">…</dd>
+        <dt>Player</dt><dd id="player">…</dd>
+        <dt>Amount</dt><dd id="amount">…</dd>
+      </dl></div>
+      <form method="post" id="f" style="display:flex;gap:10px;justify-content:center">
+        <button class="btn ghost" name="action" value="cancel">Cancel</button>
+        <button class="btn" name="action" value="pay">Pay (simulate success)</button>
+      </form>
+    </div>
+  </main>
+  <script>
+  (async () => {
+    const id = location.pathname.split('/').pop();
+    const o = await (await fetch('/api/orders/' + encodeURIComponent(id))).json();
+    document.getElementById('item').textContent = o.item;
+    document.getElementById('player').textContent = `${o.nickname} · ${o.userId} (${o.zoneId})`;
+    document.getElementById('amount').textContent = new Intl.NumberFormat(undefined, { style: 'currency', currency: o.currency }).format(o.amount / 100);
+  })();
+  </script>
+</body>
+</html>
