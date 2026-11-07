@@ -77,6 +77,24 @@ Setup takes about 5 minutes:
 5. **Admin password.** Set `ADMIN_TOKEN` to a long random string. The admin page is `/admin.html`.
 6. **Hosting.** Deploy with `NODE_ENV=production` on any Node host behind HTTPS, and keep the `data/` folder on persistent storage. That folder holds your orders, chats and photos.
 
+## Hosting (get a public link)
+
+The repo includes `render.yaml` for [Render](https://render.com).
+
+1. Sign up at render.com with your GitHub account.
+2. Click **New → Blueprint**, pick the **Diamonds** repository and branch, then click **Apply**.
+3. After a few minutes you get a link like `https://soma-diamonds.onrender.com`.
+4. Your admin password is in the service's **Environment** tab as `ADMIN_TOKEN`. Use it at `/admin.html`.
+
+**Free plan limits:** good for previews only.
+- The site sleeps when unused, so the first visit takes about a minute.
+- Orders and chats are wiped when it restarts.
+
+**For the real shop:**
+- Switch to the **Starter** plan and add a **Disk** mounted at `/var/data`.
+- Set `DATA_DIR=/var/data`.
+- For automatic delivery, set `SUPPLIER_PROVIDER=fazercards` and add `FAZER_API_KEY` as a secret in the Environment tab.
+
 ## Project layout
 
 ```

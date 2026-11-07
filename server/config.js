@@ -2,7 +2,8 @@ const path = require('path');
 
 const config = {
   port: Number(process.env.PORT) || 3000,
-  baseUrl: (process.env.BASE_URL || 'http://localhost:3000').replace(/\/$/, ''),
+  // Render sets RENDER_EXTERNAL_URL automatically.
+  baseUrl: (process.env.BASE_URL || process.env.RENDER_EXTERNAL_URL || 'http://localhost:3000').replace(/\/$/, ''),
   currency: process.env.CURRENCY || 'BTN',
   currencySymbol: process.env.CURRENCY_SYMBOL || 'Nu.',
   webhookSecret: process.env.WEBHOOK_SECRET || 'change-me',
