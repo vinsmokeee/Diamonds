@@ -64,7 +64,7 @@ const fakeServer = http.createServer((req, res) => {
 const settings = {
   categoryId: 'mobile_legends',
   validateCategoryId: '',
-  fields: { player_id: 'userId', zone_id: 'zoneId' },
+  fields: { player_id: 'userId', server_id: 'zoneId' },
   offers: { 'dm-706': 'ml_706', 'dm-86': 'ml_86' },
 };
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
@@ -96,7 +96,7 @@ test('approve sends the right top-up request to FazerCards', async () => {
   const { orderId } = await paidOrder();
   await approve(orderId);
   const call = fake.calls.find((c) => c.path === '/api/v2/topups/order');
-  assert.deepEqual(call.body, { category_id: 'mobile_legends', offer_id: 'ml_706', fields: { player_id: '123456789', zone_id: '2001' } });
+  assert.deepEqual(call.body, { category_id: 'mobile_legends', offer_id: 'ml_706', fields: { player_id: '123456789', server_id: '2001' } });
   assert.equal(call.headers['x-api-key'], 'fc_test');
   assert.equal(call.headers['idempotency-key'], `soma-${orderId}-1`);
 });

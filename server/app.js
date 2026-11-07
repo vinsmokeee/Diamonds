@@ -123,7 +123,13 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     if (!gameName) return res.status(400).json({ error: 'Enter your game name.' });
 
     try {
-      const player = await supplier.lookupPlayer(userId, zoneId);
+      let player;
+      try {
+        player = await supplier.lookupPlayer(userId, zoneId);
+      } catch (e) {
+        console.error('player lookup unavailable, continuing without nickname', e.message);
+        player = { ok: true, nickname: null };
+      }
       if (!player.ok) return res.status(404).json({ error: player.error || 'Player not found' });
 
       const now = new Date().toISOString();

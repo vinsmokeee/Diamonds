@@ -5,7 +5,7 @@
 //   POST   /topups/order        { category_id, offer_id, fields: { player_id, zone_id } } -> { order }
 //   GET    /orders/{id}         -> { order: { id, status, fail_reason } }
 //          status: created | processing | completed | failed | refund (refund = balance returned)
-//   POST   /topups/validate-id  { category_id, fields }  (optional nickname check)
+//   POST   /topups/validate-id  { category_id, fields } -> { valid, player_name }  (free nickname check)
 //   GET    /balance             -> { balance, currency }
 //   Webhooks: X-Webhook-Signature: sha256=<hmac of raw body>, events order.status_changed
 //   Idempotency-Key on orders: the same key returns the original order for 7 days, never a 2nd charge.
@@ -20,7 +20,9 @@ function loadSettings(file) {
   return {
     categoryId: raw.categoryId || 'mobile_legends',
     validateCategoryId: raw.validateCategoryId || '',
-    fields: raw.fields || { player_id: 'userId', zone_id: 'zoneId' },
+    // FazerCards names the zone differently per endpoint: orders use server_id, validate-id uses zone_id.
+    fields: raw.fields || { player_id: 'userId', server_id: 'zoneId' },
+    validateFields: raw.validateFields || raw.fields || { player_id: 'userId', zone_id: 'zoneId' },
     offers: raw.offers || {},
   };
 }
@@ -82,9 +84,9 @@ function createFazerCards({
     throw lastErr;
   }
 
-  function buildFields(o) {
+  function buildFields(o, map = settings.fields) {
     const fields = {};
-    for (const [key, prop] of Object.entries(settings.fields)) fields[key] = String(o[prop] ?? '');
+    for (const [key, prop] of Object.entries(map)) fields[key] = String(o[prop] ?? '');
     return fields;
   }
 
@@ -112,7 +114,7 @@ function createFazerCards({
       if (!settings.validateCategoryId) return { ok: true, nickname: null };
       try {
         const r = await request('POST', '/topups/validate-id', {
-          body: { category_id: settings.validateCategoryId, fields: buildFields({ userId, zoneId }) },
+          body: { category_id: settings.validateCategoryId, fields: buildFields({ userId, zoneId }, settings.validateFields || settings.fields) },
         });
         if (r.valid === false) return { ok: false, error: 'Player not found. Check your User ID and Zone ID.' };
         const nickname = r.username || r.nickname || r.player_name || r.name || r.data?.username || r.data?.nickname || null;

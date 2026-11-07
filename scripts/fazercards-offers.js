@@ -26,9 +26,9 @@ const margin = Number(process.env.MARGIN) || 15;
     cats.push(...(page.items || []));
     cursor = page.meta && page.meta.next_cursor;
   } while (cursor);
-  const ml = cats.filter((c) => /legend|mlbb/i.test(`${c.category_id} ${c.name}`));
+  const ml = cats.filter((c) => /mobile.?legends|mlbb/i.test(`${c.category_id} ${c.name}`));
   console.log('Mobile Legends top-up categories (put one in "categoryId"):');
-  for (const c of ml) console.log(`  ${c.category_id.padEnd(28)} ${c.name}${c.note ? `  — ${c.note}` : ''}`);
+  for (const c of ml) console.log(`  ${c.category_id.padEnd(30)} ${c.name}`);
   if (!ml.length) console.log('  (none found — check the FazerCards catalog)');
 
   const categoryId = process.env.CATEGORY || settings.categoryId;
@@ -44,7 +44,7 @@ const margin = Number(process.env.MARGIN) || 15;
 
   try {
     const v = await fz._request('GET', '/topups/validate-id');
-    const mv = (v.items || []).filter((g) => /legend|mlbb/i.test(`${g.category_id} ${g.name}`));
+    const mv = (v.items || []).filter((g) => /mobile.?legends|mlbb/i.test(`${g.category_id} ${g.name}`));
     console.log('\nNickname check: ' + (mv.length ? `available — set "validateCategoryId": "${mv[0].category_id}"` : 'not available for Mobile Legends'));
   } catch (e) {
     console.log(`\nNickname check: could not query (${e.message})`);
