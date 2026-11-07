@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pay with Bank QR — SOMA Diamonds</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> <span><b class="brand-soma">SOMA</b> Diamonds</span></a>
+      <nav><a href="/order.html">Track order</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="card status-card" id="payCard" hidden>
+      <p style="color:var(--muted);margin:0" id="payLabel">Pay exactly</p>
+      <div class="amount-big" id="amount"></div>
+      <p style="color:var(--muted);margin:0 0 16px" id="item"></p>
+
+      <div class="qr-box"><img id="qr" alt="Bank QR code to scan for payment"></div>
+      <div class="summary"><dl>
+        <dt>Bank</dt><dd id="bank"></dd>
+        <dt>Account name</dt><dd id="accName"></dd>
+        <dt id="accNoLabel">Account no.</dt><dd id="accNo"></dd>
+        <dt>Order ID</dt><dd><span id="orderId"></span><button class="copy" type="button" id="copyId">Copy</button></dd>
+      </dl></div>
+
+      <ol class="steps">
+        <li>Open your mobile banking app and scan the QR (or save it and scan from gallery).</li>
+        <li><strong>Type the amount yourself:</strong> <strong id="amount2"></strong>, exactly. If the app has a remarks field, write your Order ID.</li>
+        <li>Come back here and tap <strong>I have paid</strong> with a screenshot of your receipt. Your diamonds are sent to your game account as soon as we confirm the payment.</li>
+      </ol>
+
+      <form id="proofForm" style="text-align:left">
+        <label for="txnRef">Journal / reference number <span style="color:var(--muted)">(optional if you attach a screenshot)</span></label>
+        <input id="txnRef" type="text" placeholder="e.g. 123456789" maxlength="40" autocomplete="off">
+        <div style="height:12px"></div>
+        <label>Payment screenshot</label>
+        <label class="file-drop" for="shot" id="drop">
+          <span id="dropText">Tap to choose your receipt screenshot</span>
+          <input id="shot" type="file" accept="image/*" hidden>
+        </label>
+        <div style="height:14px"></div>
+        <button class="btn block" type="submit" id="submitBtn">I have paid — submit</button>
+        <div class="form-error" id="err" role="alert"></div>
+      </form>
+      <button class="btn ghost block" type="button" id="chatBtn" style="margin-top:12px">💬 Problem paying? Chat with us</button>
+      <p class="hint" id="support"></p>
+      <p class="hint"><a href="/terms.html">Terms &amp; Refund Policy</a></p>
+    </div>
+
+    <div class="card status-card" id="msgCard" hidden>
+      <h2 id="msgTitle"></h2>
+      <p style="color:var(--muted)" id="msgText"></p>
+      <a class="btn ghost" id="msgLink" href="/" style="display:inline-block;text-decoration:none">Back to shop</a>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/chat.js"></script>
+  <script>
+  (async () => {
+    const $ = (id) => document.getElementById(id);
+    const id = new URLSearchParams(location.search).get('id') || '';
+    let screenshot = null;
+
+    function message(title, text, href, linkText) {
+      $('payCard').hidden = true;
+      $('msgCard').hidden = false;
+      $('msgTitle').textContent = title;
+      $('msgText').textContent = text;
+      if (href) { $('msgLink').href = href; $('msgLink').textContent = linkText; }
+    }
+
+    const [orderRes, info] = await Promise.all([
+      fetch('/api/orders/' + encodeURIComponent(id)),
+      fetch('/api/payment-info').then((r) => r.json()),
+    ]);
+    if (!orderRes.ok) return message('Order not found', 'Check the link or start a new order.');
+    const o = await orderRes.json();
+    if (o.status !== 'pending_payment') {
+      return message('Payment already submitted', 'You can follow your order on the tracking page.', '/order.html?id=' + encodeURIComponent(o.id), 'Track order');
+    }
+
+    const due = o.amountDue ?? o.amount;
+    const amt = window.formatMoney(due, info.currencySymbol);
+    if (o.amountReceived) {
+      $('payLabel').textContent = `We received ${window.formatMoney(o.amountReceived)}. Please pay the remaining`;
+    }
+    $('amount').textContent = amt;
+    $('amount2').textContent = amt;
+    $('item').textContent = `${o.item} → ${o.userId} (${o.zoneId})`;
+    $('qr').src = info.qrImage;
+    $('bank').textContent = info.bankName;
+    $('accName').textContent = info.accountName;
+    if (info.accountNumber) $('accNo').textContent = info.accountNumber;
+    else { $('accNo').remove(); $('accNoLabel').remove(); }
+    $('orderId').textContent = o.id;
+    if (info.support) $('support').textContent = `Also: ${info.support}`;
+    window.Chat.attach(o.chatId);
+    // Remember this unpaid order: when the buyer returns from their bank app
+    // (or reopens the site), the chat opens with an "I have paid" card.
+    window.Chat.trackPending(o);
+    window.onPaymentSubmitted = (id) => setTimeout(() => { location.href = '/order.html?id=' + encodeURIComponent(id); }, 1200);
+    $('chatBtn').addEventListener('click', () => window.Chat.open());
+    $('payCard').hidden = false;
+
+    $('copyId').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(o.id); $('copyId').textContent = 'Copied'; } catch {}
+    });
+
+    // Shrink the screenshot in the browser so uploads stay small on mobile data.
+    $('shot').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        screenshot = await window.compressImage(file);
+        const preview = new Image();
+        preview.src = screenshot;
+        preview.alt = 'Receipt preview';
+        $('drop').querySelector('img')?.remove();
+        $('drop').prepend(preview);
+        $('dropText').textContent = 'Tap to change';
+      } catch {
+        $('err').textContent = 'Could not read that image. Try another screenshot.';
+      }
+    });
+
+    $('proofForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      $('err').textContent = '';
+      $('submitBtn').disabled = true;
+      $('submitBtn').textContent = 'Submitting…';
+      try {
+        const res = await fetch(`/api/orders/${encodeURIComponent(o.id)}/payment-proof`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ txnRef: $('txnRef').value.trim(), screenshot }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || 'Could not submit. Try again.');
+        window.Chat.clearPending();
+        location.href = '/order.html?id=' + encodeURIComponent(o.id);
+      } catch (err) {
+        $('err').textContent = err.message;
+        $('submitBtn').disabled = false;
+        $('submitBtn').textContent = 'I have paid — submit';
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

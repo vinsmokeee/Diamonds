@@ -1,0 +1,582 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin — SOMA Diamonds</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> <span><b class="brand-soma">SOMA</b> Diamonds</span> <span style="color:var(--muted);font-weight:500;font-size:14px">admin</span></a>
+      <nav><a href="#" id="logout" hidden>Log out</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="card status-card" id="login">
+      <h2>Admin login</h2>
+      <form id="loginForm" style="display:flex;gap:10px">
+        <input id="token" type="password" placeholder="Admin token" autocomplete="current-password" required>
+        <button class="btn" type="submit">Enter</button>
+      </form>
+      <div class="form-error" id="loginErr"></div>
+    </div>
+
+    <div id="panel" hidden>
+      <div class="tabs admin-tabs" role="tablist">
+        <button class="tab active" data-view="chats" role="tab">💬 Chats <span class="count-badge" id="chatUnread" hidden></span></button>
+        <button class="tab" data-view="orders" role="tab">🧾 Orders <span class="count-badge" id="verifyCount" hidden></span></button>
+        <span class="supplier-pill" id="supplierPill" hidden></span>
+        <button class="tab" id="alertsBtn" type="button" style="margin-left:auto" title="Play a sound and show a pop-up when a buyer pays or writes">🔔 Alerts off</button>
+      </div>
+
+      <details class="card price-panel" id="pricePanel" hidden>
+        <summary id="priceSummary"></summary>
+        <div class="price-rows" id="priceRows"></div>
+        <p class="hint" id="priceHint"></p>
+      </details>
+
+      <!-- Orders -->
+      <section id="ordersView" hidden>
+        <div class="admin-bar">
+          <select id="filter" aria-label="Filter orders">
+            <option value="awaiting_verification">To verify</option>
+            <option value="processing">To deliver</option>
+            <option value="open">All open</option>
+            <option value="completed">Completed</option>
+            <option value="payment_failed">Rejected</option>
+            <option value="failed">Failed delivery</option>
+            <option value="">Everything</option>
+          </select>
+          <button class="btn ghost" id="refresh" type="button">Refresh</button>
+          <span class="hint" id="count" style="margin:0"></span>
+        </div>
+        <div class="orders" id="orders"></div>
+      </section>
+
+      <!-- Chats -->
+      <section id="chatsView" class="admin-chat">
+        <aside class="chat-threads" id="threads"><p class="hint" style="padding:12px">No chats yet.</p></aside>
+        <div class="chat-thread" id="thread">
+          <div class="thread-empty">Select a chat</div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/common.js"></script>
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id);
+    const LABEL = {
+      pending_payment: 'Unpaid', awaiting_verification: 'Verify payment', processing: 'Deliver',
+      completed: 'Delivered', payment_failed: 'Rejected', failed: 'Delivery failed',
+    };
+    let token = '';
+    try { token = localStorage.getItem('adminToken') || ''; } catch {}
+    const view = { name: 'chats', chatId: null, lastId: 0 };
+    const supplierInfo = { automatic: false };
+    const imageCache = new Map();
+
+    async function api(path, body) {
+      const res = await fetch(path, {
+        method: body ? 'POST' : 'GET',
+        headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (res.status === 401) { logout(); throw new Error('Wrong token'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    async function authImage(url) {
+      if (imageCache.has(url)) return imageCache.get(url);
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (!res.ok) return null;
+      const blobUrl = URL.createObjectURL(await res.blob());
+      imageCache.set(url, blobUrl);
+      return blobUrl;
+    }
+
+    function logout() {
+      token = '';
+      try { localStorage.removeItem('adminToken'); } catch {}
+      $('panel').hidden = true; $('logout').hidden = true; $('login').hidden = false;
+    }
+
+    function line(parent, label, value, copy) {
+      const d = document.createElement('div');
+      d.append(label + ': ');
+      const b = document.createElement('b');
+      b.textContent = value;
+      if (copy) {
+        b.className = 'copyable'; b.title = 'Click to copy';
+        b.addEventListener('click', () => navigator.clipboard?.writeText(value));
+      }
+      d.append(b);
+      parent.append(d);
+    }
+
+    function button(text, cls, onClick) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn ' + cls; b.textContent = text;
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        try { await onClick(); await refresh(); } catch (e) { if (e.message !== 'Cancelled') alert(e.message); b.disabled = false; }
+      });
+      return b;
+    }
+
+    // One order card, used both in the Orders list and next to a chat.
+    function orderCard(o, { compact = false } = {}) {
+      const card = document.createElement('div');
+      card.className = 'card order-row' + (compact ? ' compact' : '');
+      const info = document.createElement('div');
+      const h = document.createElement('h3');
+      h.textContent = `${o.item} · ${window.formatMoney(o.amount)}`;
+      const pill = document.createElement('span');
+      pill.className = 'pill ' + o.status; pill.textContent = LABEL[o.status] || o.status;
+      h.append(pill);
+      info.append(h);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      if (!compact) {
+        if (o.gameName) line(meta, 'Game name', o.gameName, true);
+        line(meta, 'User ID', o.userId, true);
+        line(meta, 'Zone ID', o.zoneId, true);
+      }
+      const due = o.amount - (o.amountReceived || 0);
+      if (['pending_payment', 'awaiting_verification'].includes(o.status)) {
+        const exp = document.createElement('div');
+        exp.className = 'expected';
+        exp.textContent = `Expected in bank: ${window.formatMoney(due)}` + (o.amountReceived ? ` (already received ${window.formatMoney(o.amountReceived)} of ${window.formatMoney(o.amount)})` : '');
+        meta.append(exp);
+      }
+      if (o.txnRef) line(meta, o.txnRef === o.ocrJournalNo ? 'Journal no. (read from screenshot)' : 'Journal no.', o.txnRef, true);
+      else if (['awaiting_verification', 'processing'].includes(o.status)) line(meta, 'Journal no.', '— not found, check the screenshot');
+      if (o.receiptAmount !== null && o.receiptAmount !== undefined && ['awaiting_verification', 'pending_payment'].includes(o.status)) {
+        line(meta, o.receiptAmount < due ? '⚠️ Screenshot shows' : 'Screenshot shows', window.formatMoney(o.receiptAmount));
+      }
+      if (!compact) line(meta, 'Order', o.id, true);
+      line(meta, 'Created', new Date(o.createdAt).toLocaleString());
+      if (o.deliveryError) line(meta, '⚠️ Delivery error', o.deliveryError);
+      if (o.deliveryWarning && o.status === 'processing') line(meta, '⏳', o.deliveryWarning);
+      if (o.supplierRef) line(meta, 'Supplier order', o.supplierRef, true);
+      if (o.status === 'processing' && supplierInfo.automatic && !o.deliveryWarning) line(meta, '⏳', 'Supplier is delivering…');
+      if (o.note && !o.deliveryError) line(meta, 'Note', o.note);
+      info.append(meta);
+      if (o.receiptFile && !compact) {
+        authImage(`/api/admin/orders/${encodeURIComponent(o.id)}/receipt`).then((url) => {
+          if (!url) return;
+          const img = document.createElement('img');
+          img.src = url; img.className = 'receipt-thumb'; img.alt = 'Payment screenshot';
+          img.addEventListener('click', () => window.open(url));
+          info.append(img);
+        });
+      }
+      card.append(info);
+
+      const act = document.createElement('div');
+      act.className = 'actions';
+      const call = (action, note) => api(`/api/admin/orders/${encodeURIComponent(o.id)}/${action}`, { note });
+      if (['pending_payment', 'awaiting_verification', 'processing', 'failed'].includes(o.status)) {
+        act.append(button(o.txnRef ? '✏️ Journal no.' : '✏️ Set journal no.', 'ghost', () => {
+          const v = prompt('Journal / reference number from the bank receipt:', o.txnRef || '');
+          if (v === null) throw new Error('Cancelled');
+          return api(`/api/admin/orders/${encodeURIComponent(o.id)}/journal`, { txnRef: v });
+        }));
+      }
+      if (o.status === 'pending_payment') {
+        act.append(button('✓ Paid (I see it in the bank)', 'ghost', () => {
+          if (!confirm(`No receipt was sent for this order.\n\nDid ${window.formatMoney(due)} arrive in your bank account?`)) throw new Error('Cancelled');
+          return call('approve');
+        }));
+      }
+      if (o.status === 'awaiting_verification') {
+        act.append(button('✓ Payment received', 'success', () => {
+          if (!confirm(`Check your bank app first.\n\nDid the full ${window.formatMoney(due)} arrive?\n\nIf less arrived, press Cancel and use "Paid less".`)) throw new Error('Cancelled');
+          return call('approve');
+        }));
+        act.append(button('➖ Paid less', 'ghost', () => {
+          const v = prompt(`How much arrived in your bank? (price: ${window.formatMoney(due)})`, '');
+          if (v === null) throw new Error('Cancelled');
+          return api(`/api/admin/orders/${encodeURIComponent(o.id)}/partial`, { received: Number(String(v).replace(/[^0-9.]/g, '')) });
+        }));
+        act.append(button('✕ Reject', 'danger', () => {
+          const note = prompt('Reason shown to the buyer:', 'Payment not found in our bank account.');
+          if (note === null) throw new Error('Cancelled');
+          return call('reject', note);
+        }));
+      }
+      if (o.status === 'failed' && supplierInfo.automatic) act.append(button('🔁 Retry delivery', 'success', () => call('retry')));
+      if (o.status === 'processing' || o.status === 'failed') {
+        act.append(button(supplierInfo.automatic ? '💎 Delivered by hand' : '💎 Mark delivered', supplierInfo.automatic ? 'ghost' : 'success', () => {
+          if (supplierInfo.automatic && !confirm('Mark as delivered? Only do this if you topped up this player yourself.')) throw new Error('Cancelled');
+          return call('delivered');
+        }));
+      }
+      if (o.status === 'processing') {
+        act.append(button('Delivery failed', 'danger', () => {
+          const note = prompt('Note shown to the buyer:', 'Delivery failed — we will refund you.');
+          if (note === null) throw new Error('Cancelled');
+          return call('fail', note);
+        }));
+      }
+      if (!compact && o.chatId) {
+        act.append(button('💬 Open chat', 'ghost', async () => { switchView('chats'); await openChat(o.chatId); }));
+      }
+      card.append(act);
+      return card;
+    }
+
+    // ---- Orders view ----------------------------------------------------------
+    async function loadOrders() {
+      const f = $('filter').value;
+      const list = await api('/api/admin/orders' + (f ? '?status=' + f : ''));
+      const box = $('orders');
+      box.innerHTML = '';
+      $('count').textContent = `${list.length} order${list.length === 1 ? '' : 's'}`;
+      list.forEach((o) => box.append(orderCard(o)));
+    }
+
+    async function loadCounts() {
+      const toVerify = await api('/api/admin/orders?status=awaiting_verification');
+      checkAlerts('verify', toVerify.length, 'New payment to verify', 'A buyer submitted a payment.');
+      $('verifyCount').hidden = !toVerify.length;
+      $('verifyCount').textContent = toVerify.length;
+    }
+
+    // ---- Chats view -----------------------------------------------------------
+    // ---- Sound + pop-up alerts while this page is open ------------------------
+    const alerts = { on: false, lastUnread: null, lastVerify: null, ctx: null };
+    try { alerts.on = localStorage.getItem('adminAlerts') === '1'; } catch {}
+    function paintAlertsBtn() { $('alertsBtn').textContent = alerts.on ? '🔔 Alerts on' : '🔕 Alerts off'; }
+    function beep() {
+      try {
+        alerts.ctx = alerts.ctx || new AudioContext();
+        const o = alerts.ctx.createOscillator(), g = alerts.ctx.createGain();
+        o.frequency.value = 880; g.gain.value = 0.15;
+        o.connect(g).connect(alerts.ctx.destination);
+        o.start(); o.stop(alerts.ctx.currentTime + 0.25);
+      } catch {}
+    }
+    function ping(title, body) {
+      if (!alerts.on) return;
+      beep();
+      if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+        try { new Notification(title, { body, icon: '/logo.svg' }); } catch {}
+      }
+    }
+    function checkAlerts(kind, value, title, body) {
+      const key = kind === 'unread' ? 'lastUnread' : 'lastVerify';
+      if (alerts[key] !== null && value > alerts[key]) ping(title, body);
+      alerts[key] = value;
+    }
+    $('alertsBtn').addEventListener('click', async () => {
+      alerts.on = !alerts.on;
+      try { localStorage.setItem('adminAlerts', alerts.on ? '1' : '0'); } catch {}
+      if (alerts.on) {
+        beep();
+        if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+      }
+      paintAlertsBtn();
+    });
+    paintAlertsBtn();
+
+    async function loadThreads() {
+      const { chats, unreadTotal } = await api('/api/admin/chats');
+      checkAlerts('unread', unreadTotal, 'New message', 'A buyer sent a message.');
+      $('chatUnread').hidden = !unreadTotal;
+      $('chatUnread').textContent = unreadTotal;
+      document.title = (unreadTotal ? `(${unreadTotal}) ` : '') + 'Admin — SOMA Diamonds';
+      const box = $('threads');
+      box.innerHTML = '';
+      if (!chats.length) box.innerHTML = '<p class="hint" style="padding:12px">No chats yet.</p>';
+      for (const c of chats) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'thread-item' + (c.id === view.chatId ? ' active' : '') + (c.unread ? ' unread' : '');
+        const top = document.createElement('div');
+        top.className = 'thread-top';
+        const name = document.createElement('strong');
+        name.textContent = c.gameName;
+        const time = document.createElement('time');
+        time.textContent = new Date(c.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        top.append(name, time);
+        const sub = document.createElement('div');
+        sub.className = 'thread-sub';
+        sub.textContent = `${c.userId} (${c.zoneId})`;
+        if (c.orderStatus) {
+          const p = document.createElement('span');
+          p.className = 'pill ' + c.orderStatus; p.textContent = LABEL[c.orderStatus] || c.orderStatus;
+          sub.append(p);
+        }
+        const prev = document.createElement('div');
+        prev.className = 'thread-preview';
+        prev.textContent = c.preview;
+        b.append(top, sub, prev);
+        if (c.unread) {
+          const n = document.createElement('span');
+          n.className = 'count-badge'; n.textContent = c.unread;
+          top.append(n);
+        }
+        b.addEventListener('click', () => openChat(c.id));
+        box.append(b);
+      }
+    }
+
+    function threadSkeleton(c) {
+      const t = $('thread');
+      t.innerHTML = '';
+      const head = document.createElement('div');
+      head.className = 'thread-head';
+      const back = document.createElement('button');
+      back.type = 'button'; back.className = 'thread-back'; back.textContent = '←'; back.setAttribute('aria-label', 'Back to chats');
+      back.addEventListener('click', () => { view.chatId = null; $('chatsView').classList.remove('open'); loadThreads(); });
+      const who = document.createElement('div');
+      who.className = 'meta';
+      const name = document.createElement('strong');
+      name.textContent = c.gameName;
+      who.append(name);
+      line(who, 'ID', `${c.userId} (${c.zoneId})`, true);
+      head.append(back, who);
+      const orders = document.createElement('div');
+      orders.className = 'thread-orders'; orders.id = 'threadOrders';
+      const msgs = document.createElement('div');
+      msgs.className = 'chat-body'; msgs.id = 'threadBody';
+      msgs.innerHTML = '<div class="chat-list" id="threadList"></div>';
+      const form = document.createElement('form');
+      form.className = 'chat-compose'; form.id = 'reply';
+      form.innerHTML = `
+        <div class="chat-attach-preview" hidden><img alt="Photo to send"><button type="button" aria-label="Remove photo">✕</button></div>
+        <div class="chat-input-row">
+          <label class="chat-photo" title="Send a photo"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg><input type="file" accept="image/*" hidden></label>
+          <textarea rows="1" maxlength="1000" placeholder="Reply…"></textarea>
+          <button class="chat-send" type="submit" aria-label="Send">➤</button>
+        </div>
+        <div class="quick-replies"></div>
+        <div class="form-error"></div>`;
+      t.append(head, orders, msgs, form);
+      wireReply(form, c.id);
+    }
+
+    const QUICK = [
+      'Payment received ✅ Sending your diamonds now.',
+      'Please send a clear screenshot of your payment receipt.',
+      'We could not find this payment yet. Please check the amount and journal number.',
+      'Delivered 💎 Please restart the game if you don’t see them.',
+    ];
+
+    function wireReply(form, chatId) {
+      const ta = form.querySelector('textarea');
+      const file = form.querySelector('input[type=file]');
+      const prev = form.querySelector('.chat-attach-preview');
+      let image = null;
+      const qr = form.querySelector('.quick-replies');
+      for (const text of QUICK) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'quick'; b.textContent = text;
+        b.addEventListener('click', () => { ta.value = text; ta.focus(); });
+        qr.append(b);
+      }
+      file.addEventListener('change', async () => {
+        const f = file.files[0]; file.value = '';
+        if (!f) return;
+        image = await window.compressImage(f);
+        prev.querySelector('img').src = image; prev.hidden = false;
+      });
+      prev.querySelector('button').addEventListener('click', () => { image = null; prev.hidden = true; });
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = ta.value.trim();
+        if (!text && !image) return;
+        form.classList.add('sending');
+        form.querySelector('.form-error').textContent = '';
+        try {
+          const m = await api(`/api/admin/chats/${encodeURIComponent(chatId)}/messages`, { text, image });
+          ta.value = ''; image = null; prev.hidden = true;
+          await addMessage(m);
+          scrollThread();
+        } catch (ex) { form.querySelector('.form-error').textContent = ex.message; }
+        form.classList.remove('sending');
+      });
+    }
+
+    async function addMessage(m) {
+      const list = $('threadList');
+      if (!list || list.querySelector(`[data-id="${m.id}"]`)) return;
+      // Shop's messages on the right, buyer's on the left.
+      const row = document.createElement('div');
+      row.className = 'chat-msg ' + (m.from === 'admin' ? 'buyer' : m.from === 'buyer' ? 'admin' : 'system') + (m.adminOnly ? ' private' : '');
+      row.dataset.id = m.id;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      row.append(bubble);
+      list.append(row);
+      view.lastId = Math.max(view.lastId, m.id);
+      if (m.image) {
+        const img = document.createElement('img');
+        img.alt = 'Photo';
+        bubble.append(img);
+        authImage(m.image).then((url) => {
+          if (!url) return;
+          img.src = url;
+          img.style.cursor = 'zoom-in';
+          img.addEventListener('click', () => window.open(url));
+          img.addEventListener('load', scrollThread);
+        });
+      }
+      if (m.text) {
+        const t = document.createElement('div');
+        t.className = 'text'; t.textContent = m.text;
+        bubble.append(t);
+      }
+      const time = document.createElement('time');
+      time.textContent = (m.adminOnly ? '🔒 Only you can see this · ' : '') + new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      bubble.append(time);
+    }
+
+    function scrollThread() {
+      const b = $('threadBody');
+      if (b) b.scrollTop = b.scrollHeight;
+    }
+
+    async function openChat(id) {
+      view.chatId = id;
+      view.lastId = 0;
+      $('chatsView').classList.add('open');
+      const c = await api(`/api/admin/chats/${encodeURIComponent(id)}`);
+      threadSkeleton(c);
+      renderThreadOrders(c.orders);
+      for (const m of c.messages) await addMessage(m);
+      scrollThread();
+      loadThreads();
+    }
+
+    function renderThreadOrders(orders) {
+      const box = $('threadOrders');
+      if (!box) return;
+      box.innerHTML = '';
+      // Newest order first; show only the latest 2 to keep the chat visible.
+      orders.slice(-2).reverse().forEach((o) => box.append(orderCard(o, { compact: true })));
+    }
+
+    async function pollThread() {
+      if (!view.chatId || view.name !== 'chats') return;
+      const b = $('threadBody');
+      const atBottom = b && b.scrollHeight - b.scrollTop - b.clientHeight < 60;
+      const c = await api(`/api/admin/chats/${encodeURIComponent(view.chatId)}?after=${view.lastId}`);
+      for (const m of c.messages) await addMessage(m);
+      renderThreadOrders(c.orders);
+      if (c.messages.length && atBottom) scrollThread();
+    }
+
+    // ---- Shell ----------------------------------------------------------------
+    function switchView(name) {
+      view.name = name;
+      document.querySelectorAll('.admin-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.view === name));
+      $('ordersView').hidden = name !== 'orders';
+      $('chatsView').hidden = name !== 'chats';
+    }
+
+    async function refresh() {
+      await Promise.all([
+        view.name === 'orders' ? loadOrders() : Promise.resolve(),
+        loadThreads(),
+        loadCounts(),
+        pollThread(),
+      ]);
+    }
+
+    // Links from Telegram alerts: /admin.html#chat=<id>
+    async function openFromHash() {
+      const m = /^#chat=(.+)$/.exec(location.hash);
+      if (!m || !token) return;
+      history.replaceState(null, '', location.pathname);
+      switchView('chats');
+      await openChat(decodeURIComponent(m[1])).catch((e) => alert(e.message));
+    }
+    window.addEventListener('hashchange', openFromHash);
+
+    async function loadSupplier() {
+      try {
+        const s = await api('/api/admin/supplier');
+        supplierInfo.automatic = s.automatic;
+        const pill = $('supplierPill');
+        if (!s.automatic) { pill.hidden = true; return; }
+        pill.hidden = false;
+        pill.className = 'supplier-pill' + (s.error || Number(s.balance) < 5 ? ' low' : '');
+        pill.textContent = s.error ? `⚠️ ${s.name}: ${s.error}` : `💰 ${s.name}: ${s.balance} ${s.currency}`;
+        pill.title = 'Your balance at the diamond supplier. Top it up before it runs out.';
+      } catch {}
+    }
+
+    async function loadPricing() {
+      try {
+        const r = await api('/api/admin/pricing');
+        const panel = $('pricePanel');
+        if (!r.enabled || !r.rows.length) { panel.hidden = true; return; }
+        panel.hidden = false;
+        const paused = r.rows.filter((x) => x.paused);
+        panel.classList.toggle('warn', paused.length > 0);
+        $('priceSummary').textContent = paused.length
+          ? `⏸ ${paused.length} package${paused.length > 1 ? 's' : ''} paused: supplier cost went up`
+          : `✅ All ${r.rows.length} packages are profitable (min ${r.minMarginPercent}%)`;
+        const box = $('priceRows');
+        box.innerHTML = '';
+        for (const x of r.rows) {
+          const row = document.createElement('div');
+          row.className = 'price-row' + (x.paused ? ' paused' : '');
+          const name = document.createElement('span'); name.textContent = x.label;
+          const nums = document.createElement('span');
+          nums.textContent = x.cost === null
+            ? 'not sold by supplier'
+            : `cost ${window.formatMoney(Math.ceil(x.cost))} → sell ${window.formatMoney(x.price)} · ${x.margin}%`;
+          row.append(name, nums);
+          if (x.reason) { const why = document.createElement('small'); why.textContent = x.reason; row.append(why); }
+          box.append(row);
+        }
+        $('priceHint').textContent = `Rate used: Nu. ${r.usdToLocal} per USD.` +
+          (paused.length ? ' Paused packages are hidden from buyers. Raise their price in server/catalog.js (or ask Claude) and restart.' : '') +
+          (r.error ? ` Last check failed: ${r.error}` : '') +
+          (r.checkedAt ? ` Checked ${new Date(r.checkedAt).toLocaleString()}.` : '');
+      } catch {}
+    }
+
+    async function enter() {
+      try {
+        loadPricing();
+        await loadSupplier();
+        await refresh();
+        $('login').hidden = true; $('panel').hidden = false; $('logout').hidden = false;
+        openFromHash();
+      } catch (e) { $('loginErr').textContent = e.message; }
+    }
+
+    $('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      token = $('token').value;
+      try { localStorage.setItem('adminToken', token); } catch {}
+      enter();
+    });
+    $('logout').addEventListener('click', (e) => { e.preventDefault(); logout(); });
+    document.querySelectorAll('.admin-tabs .tab').forEach((t) => t.addEventListener('click', () => {
+      switchView(t.dataset.view);
+      refresh().catch(() => {});
+    }));
+    $('filter').addEventListener('change', () => loadOrders().catch((e) => alert(e.message)));
+    $('refresh').addEventListener('click', () => refresh().catch((e) => alert(e.message)));
+    setInterval(() => { if (token && !$('panel').hidden) refresh().catch(() => {}); }, 5000);
+    setInterval(() => { if (token && !$('panel').hidden) { loadSupplier(); loadPricing(); } }, 60000);
+    if (token) enter();
+  })();
+  </script>
+</body>
+</html>

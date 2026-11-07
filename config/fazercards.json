@@ -1,0 +1,24 @@
+{
+  "_help": "Match each SOMA package id (server/catalog.js) to a FazerCards offer_id. Run `npm run fazer:offers` to list ids and prices. Leave \"\" for packages you deliver by hand.",
+  "categoryId": "mobile_legends_global",
+  "validateCategoryId": "mobile_legends",
+  "fields": {
+    "player_id": "userId",
+    "server_id": "zoneId"
+  },
+  "validateFields": {
+    "player_id": "userId",
+    "zone_id": "zoneId"
+  },
+  "offers": {
+    "dm-86": "78_8_diamonds",
+    "dm-172": "156_16_diamonds",
+    "dm-257": "234_23_diamonds",
+    "dm-706": "625_81_diamonds",
+    "dm-2195": "1860_335_diamonds",
+    "dm-3688": "3099_589_diamonds",
+    "dm-5532": "4649_883_diamonds",
+    "wdp": "weekly_pass",
+    "twilight": "twilight_pass"
+  }
+}

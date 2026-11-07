@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SOMA Diamonds — MLBB Diamond Top-Up in Bhutan</title>
+  <meta name="description" content="SOMA Diamonds: MLBB diamond top-ups for the Bhutanese gaming community. Fast, efficient, cheaper and reliable. Pay in Ngultrum with your bank QR.">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> <span><b class="brand-soma">SOMA</b> Diamonds</span></a>
+      <nav><a href="#faq">FAQ</a><a href="/order.html">Track order</a><a href="/terms.html" class="nav-wide">Terms</a></nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h1>Mobile Legends <span>Diamond Top-Up</span></h1>
+      <p class="tagline">Dedicated to MLBB diamond top-ups for the Bhutanese gaming community.</p>
+      <p>Fast, efficient, cheaper and reliable. Pay with any Bhutanese bank app, no international card needed.</p>
+      <div class="badges">
+        <span class="badge">⚡ Fast delivery</span>
+        <span class="badge">✅ Reliable</span>
+        <span class="badge">🇧🇹 Pay in Nu. via bank QR</span>
+        <span class="badge">🧾 Order tracking</span>
+      </div>
+    </section>
+
+    <div class="layout">
+      <div>
+        <section class="card" aria-labelledby="s1">
+          <h2 class="step-title" id="s1"><span class="step-num">1</span> Enter your account</h2>
+          <div style="margin-bottom:10px"><label for="gameName">Game name (IGN)</label><input id="gameName" type="text" placeholder="Your in-game name" maxlength="30" autocomplete="nickname"></div>
+          <div class="fields" id="fields">
+            <div><label for="userId">User ID</label><input id="userId" type="text" inputmode="numeric" placeholder="e.g. 123456789" maxlength="12" autocomplete="off"></div>
+            <div><label for="zoneId">Zone ID</label><input id="zoneId" type="text" inputmode="numeric" placeholder="e.g. 2001" maxlength="6" autocomplete="off"></div>
+            <button class="btn ghost" id="checkBtn" type="button" hidden>Check</button>
+          </div>
+          <div class="player" id="playerBox" role="status"></div>
+          <label class="confirm" id="confirmRow" hidden><input type="checkbox" id="confirmId"> I have double-checked my User ID and Zone ID. Diamonds sent to a wrong ID can’t be returned.</label>
+          <p class="hint">Find these in-game: tap your avatar (top-left). Your ID looks like <code>123456789 (2001)</code> — the number in brackets is the Zone ID.</p>
+        </section>
+
+        <section class="card" aria-labelledby="s2">
+          <h2 class="step-title" id="s2"><span class="step-num">2</span> Choose a package</h2>
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-type="diamonds" role="tab">Diamonds</button>
+            <button class="tab" data-type="pass" role="tab">Passes</button>
+          </div>
+          <div class="grid" id="packages"><p class="hint">Loading packages…</p></div>
+        </section>
+
+        <section class="card" aria-labelledby="s3">
+          <h2 class="step-title" id="s3"><span class="step-num">3</span> Pay with bank QR</h2>
+          <div class="pay-note">
+            <div class="qr-icon" aria-hidden="true">▦</div>
+            <p>After you press <strong>Buy now</strong>, you’ll see our bank QR code. Scan it in your mobile banking app (mBoB, BNB mPay, T-Bank, BDBL, DK…), pay the exact amount, then enter the journal number from your receipt. Questions? Use the chat button at the bottom-right.</p>
+          </div>
+        </section>
+
+        <section class="card faq" id="faq">
+          <h2 class="step-title">FAQ</h2>
+          <details><summary>How long does delivery take?</summary><p>Once we confirm your bank payment, diamonds are usually sent within 5–30 minutes during working hours. Use your order link to track it.</p></details>
+          <details><summary>Which banks can I pay with?</summary><p>Scan our QR code with your mobile banking app and pay the exact amount shown. Keep your receipt and enter the journal number on the payment page.</p></details>
+          <details><summary>I entered the wrong ID. What now?</summary><p>Message us in the chat right away, before we deliver. Diamonds sent to a valid but wrong account can’t be reversed.</p></details>
+          <details><summary>Payment went through but no diamonds?</summary><p>Open the chat (bottom-right) and send us a photo of your receipt. We’ll check it and reply right there.</p></details>
+          <details><summary>Can I get a refund?</summary><p>Yes, if we couldn’t deliver, or you ask before we deliver. Diamonds already delivered to the ID you entered can’t be refunded. See our <a href="/terms.html">Terms &amp; Refund Policy</a>.</p></details>
+          <details><summary>Do you need my password?</summary><p>Never. We only need your User ID and Zone ID.</p></details>
+        </section>
+      </div>
+
+      <aside>
+        <div class="card summary">
+          <h2 class="step-title">Order summary</h2>
+          <dl>
+            <dt>Player</dt><dd id="sumPlayer">—</dd>
+            <dt>Item</dt><dd id="sumItem">—</dd>
+            <dt>Payment</dt><dd>Bank QR</dd>
+          </dl>
+          <div class="total"><span>Total</span><span id="sumTotal">—</span></div>
+          <button class="btn block" id="buyBtn" type="button" disabled>Buy now</button>
+          <div class="form-error" id="formError" role="alert"></div>
+          <p class="hint" style="margin:6px 0 0;text-align:center">By buying you agree to our <a href="/terms.html">Terms &amp; Refund Policy</a>.</p>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      SOMA Diamonds is an independent top-up service and is not affiliated with or endorsed by Moonton.
+      Mobile Legends: Bang Bang is a trademark of its respective owner.
+      <a href="/terms.html">Terms &amp; Refund Policy</a>
+      <span id="supportLine"></span>
+    </div>
+  </footer>
+
+  <script src="/common.js"></script>
+  <script src="/app.js"></script>
+  <script src="/chat.js"></script>
+</body>
+</html>

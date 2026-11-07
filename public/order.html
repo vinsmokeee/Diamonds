@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Order Status — SOMA Diamonds</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> <span><b class="brand-soma">SOMA</b> Diamonds</span></a>
+      <nav><a href="/">Top up</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="card status-card" id="lookup" hidden>
+      <h2 class="step-title" style="justify-content:center">Track your order</h2>
+      <form id="lookupForm" style="display:flex;gap:10px">
+        <input id="orderIdInput" type="text" placeholder="Order ID" required>
+        <button class="btn" type="submit">Track</button>
+      </form>
+    </div>
+
+    <div class="card status-card" id="result" hidden>
+      <div class="status-icon" id="icon"></div>
+      <h2 id="title" style="margin:0 0 4px"></h2>
+      <p id="subtitle" style="color:var(--muted);margin:0 0 18px"></p>
+      <div class="summary">
+        <dl>
+          <dt>Order ID</dt><dd id="oId"></dd>
+          <dt>Player</dt><dd id="oPlayer"></dd>
+          <dt>Item</dt><dd id="oItem"></dd>
+          <dt>Amount</dt><dd id="oAmount"></dd>
+          <dt>Created</dt><dd id="oCreated"></dd>
+        </dl>
+      </div>
+      <a class="btn" id="payLink" hidden style="display:inline-block;text-decoration:none;margin-right:8px">Go to payment</a>
+      <button class="btn ghost" type="button" id="chatBtn" style="margin-right:8px">💬 Chat</button>
+      <a class="btn ghost" href="/" style="display:inline-block;text-decoration:none">Top up again</a>
+    </div>
+  </main>
+  <script src="/common.js"></script>
+  <script src="/chat.js"></script>
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id);
+    const id = new URLSearchParams(location.search).get('id');
+    const STATES = {
+      pending_payment: ['wait', '…', 'Awaiting payment', 'Scan the bank QR and submit your journal number to continue.'],
+      awaiting_verification: ['review', '⌛', 'Checking your payment', 'We received your journal number and are confirming it with the bank. This page updates by itself.'],
+      processing:      ['wait', '<span class="spin">⟳</span>', 'Payment confirmed', 'We are sending diamonds to your account now.'],
+      completed:       ['ok', '✓', 'Delivered!', 'Diamonds have been sent. Restart the game if you don’t see them yet.'],
+      payment_failed:  ['err', '✕', 'Payment not verified', 'We could not find your payment. Contact us with your order ID and receipt.'],
+      failed:          ['err', '!', 'Delivery problem', 'Payment received but delivery failed. Contact us with your order ID.'],
+    };
+
+    if (!id) {
+      $('lookup').hidden = false;
+      $('lookupForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        location.search = '?id=' + encodeURIComponent($('orderIdInput').value.trim());
+      });
+      return;
+    }
+
+    $('chatBtn').addEventListener('click', () => window.Chat.open());
+    async function load() {
+      const res = await fetch('/api/orders/' + encodeURIComponent(id));
+      if (!res.ok) {
+        $('result').hidden = false;
+        $('icon').className = 'status-icon err';
+        $('icon').textContent = '?';
+        $('title').textContent = 'Order not found';
+        $('subtitle').textContent = 'Double-check your order ID.';
+        return;
+      }
+      const o = await res.json();
+      const [cls, icon, title, sub] = STATES[o.status] || ['wait', '…', o.status, ''];
+      $('result').hidden = false;
+      $('icon').className = 'status-icon ' + cls;
+      $('icon').innerHTML = icon;
+      $('title').textContent = title;
+      $('subtitle').textContent = o.note || sub;
+      $('oId').textContent = o.id;
+      $('oPlayer').textContent = (o.gameName || o.nickname ? `${o.gameName || o.nickname} · ` : '') + `${o.userId} (${o.zoneId})`;
+      if (o.chatId) window.Chat.attach(o.chatId);
+      $('oItem').textContent = o.item;
+      $('oAmount').textContent = window.formatMoney(o.amount) +
+        (o.amountReceived && o.status === 'pending_payment' ? ` (received ${window.formatMoney(o.amountReceived)}, ${window.formatMoney(o.amountDue)} left to pay)` : '') +
+        (o.txnRef ? ` · ref ${o.txnRef}` : '');
+      $('oCreated').textContent = new Date(o.createdAt).toLocaleString();
+      if (o.status === 'pending_payment') {
+        window.Chat.trackPending(o);
+        $('payLink').hidden = false;
+        $('payLink').href = '/pay.html?id=' + encodeURIComponent(o.id);
+      }
+      if (['pending_payment', 'awaiting_verification', 'processing'].includes(o.status)) setTimeout(load, 10000);
+    }
+    load();
+  })();
+  </script>
+</body>
+</html>
