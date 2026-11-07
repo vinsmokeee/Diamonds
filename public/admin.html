@@ -156,6 +156,7 @@
         exp.textContent = `Expected in bank: ${window.formatMoney(due)}` + (o.amountReceived ? ` (already received ${window.formatMoney(o.amountReceived)} of ${window.formatMoney(o.amount)})` : '');
         meta.append(exp);
       }
+      if (o.deliveryHint && !['completed', 'payment_failed'].includes(o.status)) line(meta, '📦 By hand', o.deliveryHint);
       if (o.txnRef) line(meta, o.txnRef === o.ocrJournalNo ? 'Journal no. (read from screenshot)' : 'Journal no.', o.txnRef, true);
       else if (['awaiting_verification', 'processing'].includes(o.status)) line(meta, 'Journal no.', '— not found, check the screenshot');
       if (o.receiptAmount !== null && o.receiptAmount !== undefined && ['awaiting_verification', 'pending_payment'].includes(o.status)) {
@@ -166,6 +167,10 @@
       if (o.deliveryError) line(meta, '⚠️ Delivery error', o.deliveryError);
       if (o.deliveryWarning && o.status === 'processing') line(meta, '⏳', o.deliveryWarning);
       if (o.supplierRef) line(meta, 'Supplier order', o.supplierRef, true);
+      if ((o.supplierParts || []).length > 1) {
+        const done = o.supplierParts.filter((p) => p.status === 'completed').length;
+        line(meta, 'Top-ups', `${done} of ${o.supplierParts.length} delivered`);
+      }
       if (o.status === 'processing' && supplierInfo.automatic && !o.deliveryWarning) line(meta, '⏳', 'Supplier is delivering…');
       if (o.note && !o.deliveryError) line(meta, 'Note', o.note);
       info.append(meta);
