@@ -13,11 +13,11 @@ const config = {
 
   // Shown to buyers on the payment page (bank-qr provider).
   bank: {
-    bankName: process.env.PAY_BANK_NAME || 'Bank of Bhutan (mBoB)',
-    accountName: process.env.PAY_ACCOUNT_NAME || 'Your Shop Name',
+    bankName: process.env.PAY_BANK_NAME || 'T Bank',
+    accountName: process.env.PAY_ACCOUNT_NAME || 'Tshering Phuntsho',
     accountNumber: process.env.PAY_ACCOUNT_NUMBER || '',
     // Put your bank's QR image in public/ and point this at it.
-    qrImage: process.env.PAY_QR_IMAGE || '/payment-qr.svg',
+    qrImage: process.env.PAY_QR_IMAGE || '/payment-qr.jpg',
   },
   support: process.env.SUPPORT_CONTACT || '',
 
