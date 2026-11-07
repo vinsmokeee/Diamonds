@@ -1,10 +1,8 @@
 // Prices are whole Ngultrum (Nu.) and are the ONLY source of truth.
 // The browser never sends a price; it sends a package id.
-// These are placeholders — set them from your own supplier cost + margin.
+// Set from FazerCards cost at ~Nu. 97/USD with roughly 16–21% margin. Packages that lost
+// money at that rate (11, 22, 56 diamonds) were removed. Re-check with `npm run fazer:offers`.
 const packages = [
-  { id: 'dm-11',   type: 'diamonds', diamonds: 11,   bonus: 0,   price: 20 },
-  { id: 'dm-22',   type: 'diamonds', diamonds: 22,   bonus: 0,   price: 38 },
-  { id: 'dm-56',   type: 'diamonds', diamonds: 56,   bonus: 0,   price: 85 },
   { id: 'dm-86',   type: 'diamonds', diamonds: 78,   bonus: 8,   price: 125 },
   { id: 'dm-172',  type: 'diamonds', diamonds: 156,  bonus: 16,  price: 245 },
   { id: 'dm-257',  type: 'diamonds', diamonds: 234,  bonus: 23,  price: 365 },

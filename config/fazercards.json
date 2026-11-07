@@ -11,9 +11,6 @@
     "zone_id": "zoneId"
   },
   "offers": {
-    "dm-11": "10_1_diamonds",
-    "dm-22": "20_2_diamonds",
-    "dm-56": "51_5_diamonds",
     "dm-86": "78_8_diamonds",
     "dm-172": "156_16_diamonds",
     "dm-257": "234_23_diamonds",
