@@ -166,7 +166,7 @@ function createApp({ store, chats, payment, supplier, playerLookup = null, dataD
       currency: config.currency,
       currencySymbol: config.currencySymbol,
       // Packages paused by the price guard (cost went up) are hidden from buyers.
-      packages: catalog.packages.filter((p) => !prices.isPaused(p.id)).map((p) => ({ ...p, label: catalog.label(p) })),
+      packages: catalog.packages.filter((p) => !prices.isPaused(p.id)).map(({ deliveryHint, ...p }) => ({ ...p, label: catalog.label(p) })),
       verifiesPlayer: Boolean(lookup),
       support: config.support,
     });
@@ -222,6 +222,7 @@ function createApp({ store, chats, payment, supplier, playerLookup = null, dataD
         status: 'pending_payment',
         packageId: pkg.id,
         item: catalog.label(pkg),
+        ...(pkg.deliveryHint ? { deliveryHint: pkg.deliveryHint } : {}),
         amount: pkg.price,
         currency: config.currency,
         userId,
@@ -317,8 +318,8 @@ function createApp({ store, chats, payment, supplier, playerLookup = null, dataD
     return o;
   }
 
-  function markDeliveryFailed(orderId, reason) {
-    const o = store.transition(orderId, 'processing', 'failed', { note: BUYER_FAIL_NOTE, deliveryError: reason });
+  function markDeliveryFailed(orderId, reason, patch = {}) {
+    const o = store.transition(orderId, 'processing', 'failed', { note: BUYER_FAIL_NOTE, deliveryError: reason, ...patch });
     if (!o) return null;
     notify(o, `⚠️ ${BUYER_FAIL_NOTE}`, 'buyer');
     if (o.chatId) {
@@ -337,12 +338,14 @@ function createApp({ store, chats, payment, supplier, playerLookup = null, dataD
     const order = store.get(orderId);
     try {
       const r = await supplier.fulfill(order);
-      if (!r.ok) return markDeliveryFailed(orderId, r.error || 'Supplier error');
+      // Multi top-up packages report each part, so a retry only resends what's missing.
+      const parts = r.parts ? { supplierParts: r.parts } : {};
+      if (!r.ok) return markDeliveryFailed(orderId, r.error || 'Supplier error', { supplierRef: r.reference || order.supplierRef || null, ...parts });
       if (r.pending) {
         // Manual supplier (admin marks delivered) or an async top-up the sync loop/webhook will finish.
-        return store.update(orderId, { supplierRef: r.reference || null, ...(r.warning ? { deliveryWarning: r.warning } : {}) });
+        return store.update(orderId, { supplierRef: r.reference || null, ...parts, ...(r.warning ? { deliveryWarning: r.warning } : {}) });
       }
-      return markDelivered(orderId, 'processing', { supplierRef: r.reference });
+      return markDelivered(orderId, 'processing', { supplierRef: r.reference, ...parts });
     } catch (e) {
       console.error('fulfil failed', e);
       return markDeliveryFailed(orderId, e.message || 'Supplier error');
@@ -369,8 +372,26 @@ function createApp({ store, chats, payment, supplier, playerLookup = null, dataD
   // Apply a supplier status update (from polling or a webhook) to our order.
   function applySupplierStatus(order, update) {
     if (!order || order.status !== 'processing') return;
-    if (update.status === 'completed') markDelivered(order.id, 'processing', { supplierRef: update.reference || order.supplierRef });
-    else if (update.status === 'failed') markDeliveryFailed(order.id, update.error || 'Supplier failed the top-up');
+    // A single-order update (e.g. a webhook) also updates the matching part, so Retry knows what to resend.
+    let partsList = update.parts;
+    if (!partsList && order.supplierParts && update.status !== 'pending') {
+      partsList = order.supplierParts.map((p) =>
+        p.status === 'pending' && (!update.reference || p.reference === update.reference)
+          ? { ...p, status: update.status, ...(update.error ? { error: update.error } : {}) }
+          : p);
+    }
+    const parts = partsList ? { supplierParts: partsList } : {};
+    if (update.status === 'completed') markDelivered(order.id, 'processing', { supplierRef: update.reference || order.supplierRef, ...parts });
+    else if (update.status === 'failed') markDeliveryFailed(order.id, update.error || 'Supplier failed the top-up', parts);
+    else if (update.parts) store.update(order.id, parts); // some parts done, others still running
+  }
+
+  // Bring one order up to date with the supplier.
+  async function syncOrder(o) {
+    const parts = o.supplierParts || [];
+    const unsent = !o.supplierRef || parts.some((p) => p.status === 'pending' && !p.reference);
+    if (unsent) return runFulfil(o.id); // same attempt = same idempotency keys, so this is safe
+    return applySupplierStatus(o, await supplier.checkOrder(o.supplierRef, parts.length ? parts : undefined));
   }
 
   // Safety net for automatic suppliers: finish orders whose webhook never came,
@@ -382,8 +403,7 @@ function createApp({ store, chats, payment, supplier, playerLookup = null, dataD
     try {
       for (const o of store.list().filter((x) => x.status === 'processing')) {
         try {
-          if (o.supplierRef) applySupplierStatus(o, await supplier.checkOrder(o.supplierRef));
-          else await runFulfil(o.id);
+          await syncOrder(o);
         } catch (e) {
           console.error('supplier sync failed for', o.id, e.message);
         }
@@ -406,7 +426,13 @@ function createApp({ store, chats, payment, supplier, playerLookup = null, dataD
       if (seenSupplierEvents.size > 5000) seenSupplierEvents.delete(seenSupplierEvents.values().next().value);
     }
     if (!event.test && !event.ignore && event.reference) {
-      applySupplierStatus(store.list().find((o) => o.supplierRef === event.reference), event);
+      const o = store.list().find((x) => x.supplierRef === event.reference || (x.supplierParts || []).some((p) => p.reference === event.reference));
+      if (o && (o.supplierParts || []).length > 1) {
+        // One part of a multi top-up changed: re-check all parts.
+        syncOrder(o).catch((e) => console.error('webhook sync', e.message));
+      } else {
+        applySupplierStatus(o, event);
+      }
     }
     res.json({ received: true });
   });

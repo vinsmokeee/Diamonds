@@ -33,6 +33,9 @@ const fakeServer = http.createServer((req, res) => {
     if (req.headers['x-api-key'] !== 'fc_test') return send(401, { ok: false, error: 'bad key' });
 
     if (req.method === 'GET' && url.pathname === '/api/v2/balance') return send(200, { ok: true, balance: fake.balance, currency: 'USD' });
+    if (req.method === 'GET' && url.pathname === '/api/v2/topups/offers') {
+      return send(200, { ok: true, category_id: 'mobile_legends', offers: [{ offer_id: 'ml_706', name: '625 + 81 Diamonds', price_usd: '8.5230' }, { offer_id: 'ml_86', name: '78 + 8 Diamonds', price_usd: '1.0900' }], fields: [] });
+    }
 
     if (req.method === 'POST' && url.pathname === '/api/v2/topups/order') {
       const key = req.headers['idempotency-key'];
@@ -65,7 +68,7 @@ const settings = {
   categoryId: 'mobile_legends',
   validateCategoryId: '',
   fields: { player_id: 'userId', server_id: 'zoneId' },
-  offers: { 'dm-706': 'ml_706', 'dm-86': 'ml_86' },
+  offers: { 'dm-706': 'ml_706', 'dm-86': 'ml_86', 'dm-1412': ['ml_706', 'ml_706'] },
 };
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
@@ -207,4 +210,81 @@ test('the supplier error is a private note: the admin sees it, the buyer does no
   const adminView = await (await fetch(`${t.base}/api/admin/chats/${chatId}`, { headers: t.admin })).json();
   const note = adminView.messages.find((m) => /Automatic delivery failed/.test(m.text));
   assert.ok(note && note.adminOnly);
+});
+
+// ---- 1412 = two 706 top-ups ------------------------------------------------------
+const creates = () => fake.calls.filter((c) => c.path === '/api/v2/topups/order');
+
+test('1412 pack: two top-ups with their own keys; done only when both are delivered', async () => {
+  const { orderId, chatId } = await paidOrder('dm-1412');
+  await approve(orderId);
+  assert.deepEqual(creates().map((c) => [c.body.offer_id, c.headers['idempotency-key']]), [
+    ['ml_706', `soma-${orderId}-1-p1`],
+    ['ml_706', `soma-${orderId}-1-p2`],
+  ]);
+  const o = t.store.get(orderId);
+  assert.equal(o.supplierParts.length, 2);
+  assert.equal(o.status, 'processing');
+
+  fake.orders.get(o.supplierParts[0].reference).status = 'completed';
+  await t.server.app.locals.syncSupplierOrders();
+  assert.equal(t.store.get(orderId).status, 'processing', 'one of two is not enough');
+  assert.equal(t.store.get(orderId).supplierParts[0].status, 'completed');
+
+  fake.orders.get(o.supplierParts[1].reference).status = 'completed';
+  await t.server.app.locals.syncSupplierOrders();
+  assert.equal(t.store.get(orderId).status, 'completed');
+  assert.equal((chatText(chatId).match(/1412 Diamonds delivered/g) || []).length, 1);
+});
+
+test('1412 pack: if the 2nd top-up fails, Retry resends ONLY the 2nd', async () => {
+  const { orderId } = await paidOrder('dm-1412');
+  await approve(orderId);
+  const [p1, p2] = t.store.get(orderId).supplierParts;
+  fake.orders.get(p1.reference).status = 'completed';
+  Object.assign(fake.orders.get(p2.reference), { status: 'refund', fail_reason: 'Temporary error' });
+  await t.server.app.locals.syncSupplierOrders();
+  const failed = t.store.get(orderId);
+  assert.equal(failed.status, 'failed');
+  assert.match(failed.deliveryError, /1 of 2 top-ups delivered/);
+
+  fake.mode = 'instant';
+  await t.post(`/api/admin/orders/${orderId}/retry`, {}, t.admin);
+  assert.equal(t.store.get(orderId).status, 'completed');
+  assert.deepEqual(creates().map((c) => c.headers['idempotency-key']), [
+    `soma-${orderId}-1-p1`,
+    `soma-${orderId}-1-p2`,
+    `soma-${orderId}-2-p2`, // only the missing part, with a new key
+  ]);
+});
+
+test('1412 pack: if the 1st top-up is refused, the 2nd is not started; Retry sends both', async () => {
+  fake.mode = 'reject';
+  const { orderId } = await paidOrder('dm-1412');
+  await approve(orderId);
+  assert.equal(creates().length, 1);
+  assert.equal(t.store.get(orderId).status, 'failed');
+  assert.equal(t.store.get(orderId).supplierParts[1].status, 'not_started');
+  fake.mode = 'instant';
+  await t.post(`/api/admin/orders/${orderId}/retry`, {}, t.admin);
+  assert.equal(t.store.get(orderId).status, 'completed');
+  assert.deepEqual(creates().slice(1).map((c) => c.headers['idempotency-key']), [`soma-${orderId}-2-p1`, `soma-${orderId}-2-p2`]);
+});
+
+test('1412 pack: a webhook for one part re-checks the whole order', async () => {
+  const { orderId } = await paidOrder('dm-1412');
+  await approve(orderId);
+  const parts = t.store.get(orderId).supplierParts;
+  for (const p of parts) fake.orders.get(p.reference).status = 'completed';
+  const body = JSON.stringify({ event: 'order.status_changed', event_id: `evt-${orderId}`, data: { id: parts[1].reference, status: 'completed' } });
+  const sig = 'sha256=' + crypto.createHmac('sha256', 'whsec_test').update(body).digest('hex');
+  await t.post('/api/webhooks/supplier', body, { 'x-webhook-signature': sig });
+  for (let i = 0; i < 50 && t.store.get(orderId).status !== 'completed'; i++) await new Promise((r) => setTimeout(r, 20));
+  assert.equal(t.store.get(orderId).status, 'completed');
+});
+
+test('1412 pack costs the sum of its parts (for the profit check)', async () => {
+  const costs = await supplier.getPackageCosts();
+  assert.equal(costs['dm-1412'], 17.046);
+  assert.equal(costs['dm-706'], 8.523);
 });

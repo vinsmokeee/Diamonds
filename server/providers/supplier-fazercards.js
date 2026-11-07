@@ -84,6 +84,25 @@ function createFazerCards({
     throw lastErr;
   }
 
+  // A package maps to one offer id, or a list of offer ids (several top-ups to the same player).
+  function offersFor(packageId) {
+    const spec = settings.offers[packageId];
+    return (Array.isArray(spec) ? spec : [spec]).filter(Boolean);
+  }
+
+  function summarise(parts) {
+    const reference = parts.map((p) => p.reference).filter(Boolean).join('+') || null;
+    const done = parts.filter((p) => p.status === 'completed').length;
+    const failed = parts.find((p) => p.status === 'failed');
+    if (failed) {
+      const progress = parts.length > 1 ? ` (${done} of ${parts.length} top-ups delivered)` : '';
+      return { ok: false, error: `${failed.error || 'Supplier failed the top-up'}${progress}`, reference, parts };
+    }
+    if (done === parts.length) return { ok: true, reference, parts };
+    const warning = parts.find((p) => p.warning)?.warning;
+    return { ok: true, pending: true, reference, parts, ...(warning ? { warning } : {}) };
+  }
+
   function buildFields(o, map = settings.fields) {
     const fields = {};
     for (const [key, prop] of Object.entries(map)) fields[key] = String(o[prop] ?? '');
@@ -126,32 +145,68 @@ function createFazerCards({
     },
 
     /**
-     * Start the top-up. Uses a stable idempotency key per delivery attempt, so a
-     * timeout + retry can never pay the supplier twice for the same order.
+     * Start the top-up. A package may need several supplier top-ups (e.g. 1412 = 2 x 706):
+     * each part gets its own idempotency key, completed parts are never re-sent, and a
+     * timeout + retry can never pay the supplier twice for the same part.
+     * -> { ok, pending?, reference, parts, error?, warning? }
      */
     async fulfill(order) {
-      const offerId = settings.offers[order.packageId];
-      if (!offerId) return { ok: false, error: `No FazerCards offer set for "${order.packageId}" — deliver by hand or add it to config/fazercards.json.` };
-      try {
-        const r = await request('POST', '/topups/order', {
-          body: { category_id: settings.categoryId, offer_id: offerId, fields: buildFields(order) },
-          idempotencyKey: `soma-${order.id}-${order.deliveryAttempts || 1}`,
-        });
-        const n = normalise(r.order || r);
-        if (n.status === 'completed') return { ok: true, reference: n.reference };
-        if (n.status === 'failed') return { ok: false, error: n.error, reference: n.reference };
-        return { ok: true, pending: true, reference: n.reference };
-      } catch (e) {
-        // Outcome unknown (e.g. timeout): keep it "processing" without a reference so the admin checks it.
-        if (e.retryable) return { ok: true, pending: true, reference: null, warning: `Supplier did not answer: ${e.message}` };
-        return { ok: false, error: `Supplier refused the top-up: ${e.message}` };
+      const offers = offersFor(order.packageId);
+      if (!offers.length) return { ok: false, error: `No FazerCards offer set for "${order.packageId}" — deliver by hand or add it to config/fazercards.json.` };
+      const attempt = order.deliveryAttempts || 1;
+      const multi = offers.length > 1;
+      const prev = order.supplierParts || [];
+      const parts = [];
+      for (let i = 0; i < offers.length; i++) {
+        const old = prev[i];
+        // Keep parts that are done or already with the supplier.
+        if (old && (old.status === 'completed' || (old.status === 'pending' && old.reference))) {
+          parts.push(old);
+          continue;
+        }
+        const key = multi ? `soma-${order.id}-${attempt}-p${i + 1}` : `soma-${order.id}-${attempt}`;
+        try {
+          const r = await request('POST', '/topups/order', {
+            body: { category_id: settings.categoryId, offer_id: offers[i], fields: buildFields(order) },
+            idempotencyKey: key,
+          });
+          const n = normalise(r.order || r);
+          parts.push({ offerId: offers[i], reference: n.reference || null, status: n.status, ...(n.error ? { error: n.error } : {}) });
+        } catch (e) {
+          // Outcome unknown (e.g. timeout): resend later with the SAME key, which is safe.
+          if (e.retryable) parts.push({ offerId: offers[i], reference: null, status: 'pending', warning: `Supplier did not answer: ${e.message}` });
+          else parts.push({ offerId: offers[i], reference: null, status: 'failed', error: `Supplier refused the top-up: ${e.message}` });
+        }
+        if (parts[i].status === 'failed') {
+          // Don't start the remaining parts on this attempt.
+          for (let j = i + 1; j < offers.length; j++) parts.push(prev[j] && prev[j].status === 'completed' ? prev[j] : { offerId: offers[j], reference: null, status: 'not_started' });
+          break;
+        }
       }
+      return summarise(parts);
     },
 
-    /** Poll one supplier order. -> { status: 'completed' | 'failed' | 'pending', error? } */
-    async checkOrder(reference) {
-      const r = await request('GET', `/orders/${encodeURIComponent(reference)}`);
-      return normalise(r.order || r);
+    /**
+     * Poll the supplier. With parts (multi top-up), checks each unfinished part.
+     * -> { status: 'completed' | 'failed' | 'pending', error?, parts?, reference? }
+     */
+    async checkOrder(reference, parts) {
+      if (!parts || !parts.length) {
+        const r = await request('GET', `/orders/${encodeURIComponent(reference)}`);
+        return normalise(r.order || r);
+      }
+      const next = [];
+      for (const p of parts) {
+        if (p.status === 'pending' && p.reference) {
+          const r = await request('GET', `/orders/${encodeURIComponent(p.reference)}`);
+          const n = normalise(r.order || r);
+          next.push({ ...p, status: n.status, ...(n.error ? { error: n.error } : {}) });
+        } else {
+          next.push(p);
+        }
+      }
+      const s = summarise(next);
+      return { status: s.ok ? (s.pending ? 'pending' : 'completed') : 'failed', error: s.error, parts: next, reference: s.reference };
     },
 
     /** Current supplier cost (USD) of each SOMA package that has an offer id. */
@@ -159,8 +214,12 @@ function createFazerCards({
       const r = await request('GET', `/topups/offers?category_id=${encodeURIComponent(settings.categoryId)}`);
       const byOffer = Object.fromEntries((r.offers || []).map((o) => [o.offer_id, Number(o.price_usd)]));
       const costs = {};
-      for (const [packageId, offerId] of Object.entries(settings.offers)) {
-        if (offerId) costs[packageId] = Number.isFinite(byOffer[offerId]) ? byOffer[offerId] : null; // null = offer gone
+      for (const packageId of Object.keys(settings.offers)) {
+        const offers = offersFor(packageId);
+        if (!offers.length) continue;
+        const prices = offers.map((id) => byOffer[id]);
+        // null = an offer is gone; bundles cost the sum of their parts
+        costs[packageId] = prices.every(Number.isFinite) ? Math.round(prices.reduce((a, b) => a + b, 0) * 10000) / 10000 : null;
       }
       return costs;
     },

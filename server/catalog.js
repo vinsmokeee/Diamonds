@@ -9,6 +9,8 @@ const packages = [
   { id: 'dm-172',  type: 'diamonds', diamonds: 156,  bonus: 16,  price: 255 },
   { id: 'dm-257',  type: 'diamonds', diamonds: 234,  bonus: 23,  price: 370 },
   { id: 'dm-706',  type: 'diamonds', diamonds: 625,  bonus: 81,  price: 995, tag: 'Popular' },
+  // Delivered as 2 x 706 (625+81) top-ups: much better value than FazerCards' single 1084/1163/1446 packs.
+  { id: 'dm-1412', type: 'diamonds', diamonds: 1250, bonus: 162, price: 1960, deliveryHint: 'Send as 2 × 706 (625+81) top-ups' },
   { id: 'dm-2195', type: 'diamonds', diamonds: 1860, bonus: 335, price: 2900 },
   { id: 'dm-3688', type: 'diamonds', diamonds: 3099, bonus: 589, price: 4850 },
   { id: 'dm-5532', type: 'diamonds', diamonds: 4649, bonus: 883, price: 7300, tag: 'Best value' },
