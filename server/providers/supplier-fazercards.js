@@ -154,6 +154,17 @@ function createFazerCards({
       return normalise(r.order || r);
     },
 
+    /** Current supplier cost (USD) of each SOMA package that has an offer id. */
+    async getPackageCosts() {
+      const r = await request('GET', `/topups/offers?category_id=${encodeURIComponent(settings.categoryId)}`);
+      const byOffer = Object.fromEntries((r.offers || []).map((o) => [o.offer_id, Number(o.price_usd)]));
+      const costs = {};
+      for (const [packageId, offerId] of Object.entries(settings.offers)) {
+        if (offerId) costs[packageId] = Number.isFinite(byOffer[offerId]) ? byOffer[offerId] : null; // null = offer gone
+      }
+      return costs;
+    },
+
     async getBalance() {
       const r = await request('GET', '/balance');
       return { balance: r.balance, currency: r.currency || 'USD' };

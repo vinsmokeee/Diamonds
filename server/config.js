@@ -21,6 +21,12 @@ const config = {
   },
   support: process.env.SUPPORT_CONTACT || '',
 
+  // Profit protection: cost in Nu. = supplier USD price x usdToLocal.
+  pricing: {
+    usdToLocal: Number(process.env.USD_TO_NU) || 97,
+    minMarginPercent: process.env.MIN_MARGIN_PERCENT !== undefined ? Number(process.env.MIN_MARGIN_PERCENT) : 10,
+  },
+
   // Telegram alerts to the shop owner (optional)
   telegram: {
     token: process.env.TELEGRAM_BOT_TOKEN || '',

@@ -6,6 +6,7 @@ const catalog = require('./catalog');
 const { saveDataUrlImage } = require('./images');
 const { createChatService, mountChatRoutes, cleanName } = require('./chat');
 const { createNotifier } = require('./notify');
+const { createPriceGuard } = require('./pricing');
 
 const USER_ID = /^\d{5,12}$/;
 const ZONE_ID = /^\d{1,6}$/;
@@ -57,15 +58,17 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true, notifier = null }) {
+function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true, notifier = null, priceGuard = null }) {
   const receiptsDir = dataDir ? path.join(dataDir, 'receipts') : null;
   const chat = createChatService({ chats, dataDir });
   const limiter = (opts) => rateLimit({ ...opts, enabled: rateLimits });
   const money = (n) => `${config.currencySymbol} ${n.toLocaleString('en-IN')}`;
   const alerts = notifier || createNotifier({ ...config.telegram, baseUrl: config.baseUrl, money });
   const alertOn = (event) => (config.telegram.events || []).includes(event);
+  const prices = priceGuard || createPriceGuard({ supplier, ...config.pricing });
   const notify = (order, text, audience) => order && order.chatId && chat.post(order.chatId, { from: 'system', text, audience });
   const app = express();
+  app.locals.priceGuard = prices;
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
@@ -84,7 +87,8 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     res.json({
       currency: config.currency,
       currencySymbol: config.currencySymbol,
-      packages: catalog.packages.map((p) => ({ ...p, label: catalog.label(p) })),
+      // Packages paused by the price guard (cost went up) are hidden from buyers.
+      packages: catalog.packages.filter((p) => !prices.isPaused(p.id)).map((p) => ({ ...p, label: catalog.label(p) })),
       verifiesPlayer: supplier.verifiesPlayer ?? !supplier.manual,
       support: config.support,
     });
@@ -120,6 +124,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
 
     if (!USER_ID.test(userId) || !ZONE_ID.test(zoneId)) return res.status(400).json({ error: 'Invalid User ID or Zone ID.' });
     if (!pkg) return res.status(400).json({ error: 'Choose a package.' });
+    if (prices.isPaused(pkg.id)) return res.status(409).json({ error: 'This package is temporarily unavailable. Please choose another one.' });
     if (!gameName) return res.status(400).json({ error: 'Enter your game name.' });
 
     try {
@@ -359,6 +364,8 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     if (!o || !o.receiptFile || !receiptsDir) return res.status(404).json({ error: 'No screenshot' });
     res.sendFile(path.join(receiptsDir, path.basename(o.receiptFile)));
   });
+
+  app.get('/api/admin/pricing', (_req, res) => res.json(prices.report()));
 
   app.get('/api/admin/supplier', async (_req, res) => {
     const info = { name: supplier.name, automatic: !supplier.manual };

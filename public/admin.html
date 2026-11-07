@@ -33,6 +33,12 @@
         <button class="tab" id="alertsBtn" type="button" style="margin-left:auto" title="Play a sound and show a pop-up when a buyer pays or writes">🔔 Alerts off</button>
       </div>
 
+      <details class="card price-panel" id="pricePanel" hidden>
+        <summary id="priceSummary"></summary>
+        <div class="price-rows" id="priceRows"></div>
+        <p class="hint" id="priceHint"></p>
+      </details>
+
       <!-- Orders -->
       <section id="ordersView" hidden>
         <div class="admin-bar">
@@ -480,8 +486,41 @@
       } catch {}
     }
 
+    async function loadPricing() {
+      try {
+        const r = await api('/api/admin/pricing');
+        const panel = $('pricePanel');
+        if (!r.enabled || !r.rows.length) { panel.hidden = true; return; }
+        panel.hidden = false;
+        const paused = r.rows.filter((x) => x.paused);
+        panel.classList.toggle('warn', paused.length > 0);
+        $('priceSummary').textContent = paused.length
+          ? `⏸ ${paused.length} package${paused.length > 1 ? 's' : ''} paused: supplier cost went up`
+          : `✅ All ${r.rows.length} packages are profitable (min ${r.minMarginPercent}%)`;
+        const box = $('priceRows');
+        box.innerHTML = '';
+        for (const x of r.rows) {
+          const row = document.createElement('div');
+          row.className = 'price-row' + (x.paused ? ' paused' : '');
+          const name = document.createElement('span'); name.textContent = x.label;
+          const nums = document.createElement('span');
+          nums.textContent = x.cost === null
+            ? 'not sold by supplier'
+            : `cost ${window.formatMoney(Math.ceil(x.cost))} → sell ${window.formatMoney(x.price)} · ${x.margin}%`;
+          row.append(name, nums);
+          if (x.reason) { const why = document.createElement('small'); why.textContent = x.reason; row.append(why); }
+          box.append(row);
+        }
+        $('priceHint').textContent = `Rate used: Nu. ${r.usdToLocal} per USD.` +
+          (paused.length ? ' Paused packages are hidden from buyers. Raise their price in server/catalog.js (or ask Claude) and restart.' : '') +
+          (r.error ? ` Last check failed: ${r.error}` : '') +
+          (r.checkedAt ? ` Checked ${new Date(r.checkedAt).toLocaleString()}.` : '');
+      } catch {}
+    }
+
     async function enter() {
       try {
+        loadPricing();
         await loadSupplier();
         await refresh();
         $('login').hidden = true; $('panel').hidden = false; $('logout').hidden = false;
@@ -503,7 +542,7 @@
     $('filter').addEventListener('change', () => loadOrders().catch((e) => alert(e.message)));
     $('refresh').addEventListener('click', () => refresh().catch((e) => alert(e.message)));
     setInterval(() => { if (token && !$('panel').hidden) refresh().catch(() => {}); }, 5000);
-    setInterval(() => { if (token && !$('panel').hidden) loadSupplier(); }, 60000);
+    setInterval(() => { if (token && !$('panel').hidden) { loadSupplier(); loadPricing(); } }, 60000);
     if (token) enter();
   })();
   </script>

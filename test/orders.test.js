@@ -34,7 +34,7 @@ test('order uses server-side price, ignores client price', async () => {
   assert.equal(r.status, 201);
   const { orderId } = await r.json();
   const o = await (await fetch(`${t.base}/api/orders/${orderId}`)).json();
-  assert.equal(o.amount, 125);
+  assert.equal(o.amount, require('../server/catalog').getPackage('dm-86').price);
   assert.equal(o.status, 'pending_payment');
 });
 

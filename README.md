@@ -107,6 +107,19 @@ When this is set up, pressing **✓ Payment received** tells FazerCards to send 
 
 **Before going live**, test one small package on a real Bhutanese account. FazerCards funds balances in crypto (USDT and similar), so check that you can pay them from Bhutan.
 
+## Profit protection
+
+Prices in `server/catalog.js` are set for about **20% profit** over FazerCards' cost at **Nu. 97 per USD**.
+
+With FazerCards connected, the site re-checks FazerCards' prices **every hour**:
+- **Profit drops too low:** if a package would earn less than `MIN_MARGIN_PERCENT` (default **10%**), it's **paused**. Buyers can't see it or order it.
+- **Pack removed:** if FazerCards stops selling a pack, that package is paused too.
+- **Cost drops back:** a paused package returns by itself.
+- **Admin view:** `/admin.html` shows a **✅ / ⏸ profit panel** with each package's cost, price and margin.
+- **Supplier unreachable:** nothing changes. The last check is kept.
+
+Set `USD_TO_NU` to what you **actually** pay for 1 USD of FazerCards balance, including USDT fees, so the margins are real.
+
 ## Later: more automation
 
 - **Automatic delivery.** If your diamond supplier has an API, write `server/providers/supplier-<name>.js` with `lookupPlayer()` and `fulfill()`, and set `SUPPLIER_PROVIDER`. Orders then deliver as soon as you approve the payment, and buyers see their in-game nickname before paying.

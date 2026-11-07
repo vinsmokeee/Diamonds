@@ -25,7 +25,7 @@ test('alerts the owner when a buyer submits payment, with the screenshot', async
   const c = calls.find((x) => x[0] === 'payment');
   assert.ok(c, 'payment alert sent');
   assert.equal(c[1].txnRef, 'JN-ALERT-1');
-  assert.equal(c[1].amount, 980);
+  assert.equal(c[1].amount, require('../server/catalog').getPackage('dm-706').price);
   assert.match(c[2], /receipts\/.+\.png$/);
   assert.ok(!calls.some((x) => x[0] === 'order'), 'order alerts are off by default');
 });

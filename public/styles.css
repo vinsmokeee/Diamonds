@@ -248,3 +248,13 @@ body.has-chat { padding-bottom: 80px; }
 .supplier-pill:not([hidden]) + #alertsBtn { margin-left: 0 !important; }
 
 .chat-msg.private .bubble { border-color: rgba(255,200,90,.55); color: var(--gold); background: rgba(255,200,90,.06); }
+
+.price-panel { margin: 0 0 14px; padding: 12px 16px; }
+.price-panel summary { cursor: pointer; font-weight: 600; color: var(--ok); }
+.price-panel.warn { border-color: rgba(255,107,122,.5); }
+.price-panel.warn summary { color: var(--err); }
+.price-rows { display: grid; gap: 6px; margin-top: 10px; }
+.price-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.price-row span:last-of-type { color: var(--muted); }
+.price-row small { width: 100%; color: var(--err); }
+.price-row.paused span:first-child { color: var(--err); font-weight: 600; }

@@ -5,12 +5,12 @@ const path = require('path');
 const { createApp } = require('../server/app');
 const { JsonStore } = require('../server/store');
 
-async function start({ payment, supplier, notifier }) {
+async function start({ payment, supplier, notifier, priceGuard }) {
   const store = new JsonStore(null);
   const chats = new JsonStore(null);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diamonds-'));
   const receiptsDir = path.join(dataDir, 'receipts');
-  const app = createApp({ store, chats, payment, supplier, dataDir, notifier, rateLimits: false });
+  const app = createApp({ store, chats, payment, supplier, dataDir, notifier, priceGuard, rateLimits: false });
   const server = app.listen(0);
   server.app = app;
   await new Promise((r) => server.once('listening', r));
