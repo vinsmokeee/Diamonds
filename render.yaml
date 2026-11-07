@@ -16,6 +16,8 @@ services:
         value: "22"
       - key: ADMIN_TOKEN
         generateValue: true # Render makes a long random admin password; copy it from the Environment tab
+      - key: FAZER_API_KEY
+        sync: false # paste your FazerCards API key in Render's Environment tab (shows players' in-game names)
       - key: SUPPLIER_PROVIDER
         value: manual # change to "fazercards" and add FAZER_API_KEY when you're ready for automatic delivery
       - key: USD_TO_NU

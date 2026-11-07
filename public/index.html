@@ -36,10 +36,9 @@
           <div class="fields" id="fields">
             <div><label for="userId">User ID</label><input id="userId" type="text" inputmode="numeric" placeholder="e.g. 123456789" maxlength="12" autocomplete="off"></div>
             <div><label for="zoneId">Zone ID</label><input id="zoneId" type="text" inputmode="numeric" placeholder="e.g. 2001" maxlength="6" autocomplete="off"></div>
-            <button class="btn ghost" id="checkBtn" type="button" hidden>Check</button>
           </div>
-          <div class="player" id="playerBox" role="status"></div>
-          <label class="confirm" id="confirmRow" hidden><input type="checkbox" id="confirmId"> I have double-checked my User ID and Zone ID. Diamonds sent to a wrong ID can’t be returned.</label>
+          <label class="confirm" id="confirmRow"><input type="checkbox" id="confirmId"> I have double-checked my User ID and Zone ID. Diamonds sent to a wrong ID can’t be returned.</label>
+          <div class="player" id="playerBox" role="status" aria-live="polite"></div>
           <p class="hint">Find these in-game: tap your avatar (top-left). Your ID looks like <code>123456789 (2001)</code> — the number in brackets is the Zone ID.</p>
         </section>
 

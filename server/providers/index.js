@@ -15,7 +15,13 @@ function load(registry, name, kind) {
   return registry[name]();
 }
 
-module.exports = {
-  payment: load(payments, config.paymentProvider, 'payment'),
-  supplier: load(suppliers, config.supplierProvider, 'supplier'),
-};
+const payment = load(payments, config.paymentProvider, 'payment');
+const supplier = load(suppliers, config.supplierProvider, 'supplier');
+
+// In-game name lookup: the supplier's own, or FazerCards' free nickname check whenever
+// FAZER_API_KEY is set (even if diamonds are still delivered by hand).
+let playerLookup = null;
+if (supplier.verifiesPlayer) playerLookup = supplier;
+else if (process.env.FAZER_API_KEY) playerLookup = require('./supplier-fazercards').fromEnv();
+
+module.exports = { payment, supplier, playerLookup };
