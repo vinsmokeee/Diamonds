@@ -26,25 +26,40 @@
     </div>
 
     <div id="panel" hidden>
-      <div class="admin-bar">
-        <h1>Orders</h1>
-        <select id="filter">
-          <option value="awaiting_verification">To verify</option>
-          <option value="processing">To deliver</option>
-          <option value="open">All open</option>
-          <option value="completed">Completed</option>
-          <option value="payment_failed">Rejected</option>
-          <option value="failed">Failed delivery</option>
-          <option value="">Everything</option>
-        </select>
-        <button class="btn ghost" id="refresh" type="button">Refresh</button>
+      <div class="tabs admin-tabs" role="tablist">
+        <button class="tab active" data-view="chats" role="tab">💬 Chats <span class="count-badge" id="chatUnread" hidden></span></button>
+        <button class="tab" data-view="orders" role="tab">🧾 Orders <span class="count-badge" id="verifyCount" hidden></span></button>
       </div>
-      <p class="hint" id="count"></p>
-      <div class="orders" id="orders"></div>
+
+      <!-- Orders -->
+      <section id="ordersView" hidden>
+        <div class="admin-bar">
+          <select id="filter" aria-label="Filter orders">
+            <option value="awaiting_verification">To verify</option>
+            <option value="processing">To deliver</option>
+            <option value="open">All open</option>
+            <option value="completed">Completed</option>
+            <option value="payment_failed">Rejected</option>
+            <option value="failed">Failed delivery</option>
+            <option value="">Everything</option>
+          </select>
+          <button class="btn ghost" id="refresh" type="button">Refresh</button>
+          <span class="hint" id="count" style="margin:0"></span>
+        </div>
+        <div class="orders" id="orders"></div>
+      </section>
+
+      <!-- Chats -->
+      <section id="chatsView" class="admin-chat">
+        <aside class="chat-threads" id="threads"><p class="hint" style="padding:12px">No chats yet.</p></aside>
+        <div class="chat-thread" id="thread">
+          <div class="thread-empty">Select a chat</div>
+        </div>
+      </section>
     </div>
   </main>
 
-  <script src="/money.js"></script>
+  <script src="/common.js"></script>
   <script>
   (() => {
     const $ = (id) => document.getElementById(id);
@@ -54,6 +69,8 @@
     };
     let token = '';
     try { token = sessionStorage.getItem('adminToken') || ''; } catch {}
+    const view = { name: 'chats', chatId: null, lastId: 0 };
+    const imageCache = new Map();
 
     async function api(path, body) {
       const res = await fetch(path, {
@@ -65,6 +82,15 @@
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || 'Request failed');
       return data;
+    }
+
+    async function authImage(url) {
+      if (imageCache.has(url)) return imageCache.get(url);
+      const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
+      if (!res.ok) return null;
+      const blobUrl = URL.createObjectURL(await res.blob());
+      imageCache.set(url, blobUrl);
+      return blobUrl;
     }
 
     function logout() {
@@ -91,82 +117,298 @@
       b.type = 'button'; b.className = 'btn ' + cls; b.textContent = text;
       b.addEventListener('click', async () => {
         b.disabled = true;
-        try { await onClick(); await load(); } catch (e) { alert(e.message); b.disabled = false; }
+        try { await onClick(); await refresh(); } catch (e) { if (e.message !== 'Cancelled') alert(e.message); b.disabled = false; }
       });
       return b;
     }
 
-    async function receipt(o, parent) {
-      const res = await fetch(`/api/admin/orders/${encodeURIComponent(o.id)}/receipt`, { headers: { Authorization: 'Bearer ' + token } });
-      if (!res.ok) return;
-      const url = URL.createObjectURL(await res.blob());
-      const img = document.createElement('img');
-      img.src = url; img.className = 'receipt-thumb'; img.alt = 'Payment screenshot';
-      img.addEventListener('click', () => window.open(url));
-      parent.append(img);
+    // One order card, used both in the Orders list and next to a chat.
+    function orderCard(o, { compact = false } = {}) {
+      const card = document.createElement('div');
+      card.className = 'card order-row' + (compact ? ' compact' : '');
+      const info = document.createElement('div');
+      const h = document.createElement('h3');
+      h.textContent = `${o.item} · ${window.formatMoney(o.amount)}`;
+      const pill = document.createElement('span');
+      pill.className = 'pill ' + o.status; pill.textContent = LABEL[o.status] || o.status;
+      h.append(pill);
+      info.append(h);
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      if (!compact) {
+        if (o.gameName) line(meta, 'Game name', o.gameName, true);
+        line(meta, 'User ID', o.userId, true);
+        line(meta, 'Zone ID', o.zoneId, true);
+      }
+      if (o.txnRef) line(meta, 'Journal no.', o.txnRef, true);
+      if (!compact) line(meta, 'Order', o.id, true);
+      line(meta, 'Created', new Date(o.createdAt).toLocaleString());
+      if (o.note) line(meta, 'Note', o.note);
+      info.append(meta);
+      if (o.receiptFile && !compact) {
+        authImage(`/api/admin/orders/${encodeURIComponent(o.id)}/receipt`).then((url) => {
+          if (!url) return;
+          const img = document.createElement('img');
+          img.src = url; img.className = 'receipt-thumb'; img.alt = 'Payment screenshot';
+          img.addEventListener('click', () => window.open(url));
+          info.append(img);
+        });
+      }
+      card.append(info);
+
+      const act = document.createElement('div');
+      act.className = 'actions';
+      const call = (action, note) => api(`/api/admin/orders/${encodeURIComponent(o.id)}/${action}`, { note });
+      if (o.status === 'awaiting_verification') {
+        act.append(button('✓ Payment received', 'success', () => call('approve')));
+        act.append(button('✕ Reject', 'danger', () => {
+          const note = prompt('Reason shown to the buyer:', 'Payment not found in our bank account.');
+          if (note === null) throw new Error('Cancelled');
+          return call('reject', note);
+        }));
+      }
+      if (o.status === 'processing' || o.status === 'failed') act.append(button('💎 Mark delivered', 'success', () => call('delivered')));
+      if (o.status === 'processing') {
+        act.append(button('Delivery failed', 'danger', () => {
+          const note = prompt('Note shown to the buyer:', 'Delivery failed — we will refund you.');
+          if (note === null) throw new Error('Cancelled');
+          return call('fail', note);
+        }));
+      }
+      if (!compact && o.chatId) {
+        act.append(button('💬 Open chat', 'ghost', async () => { switchView('chats'); await openChat(o.chatId); }));
+      }
+      card.append(act);
+      return card;
     }
 
-    function render(list) {
+    // ---- Orders view ----------------------------------------------------------
+    async function loadOrders() {
+      const f = $('filter').value;
+      const list = await api('/api/admin/orders' + (f ? '?status=' + f : ''));
       const box = $('orders');
       box.innerHTML = '';
       $('count').textContent = `${list.length} order${list.length === 1 ? '' : 's'}`;
-      for (const o of list) {
-        const card = document.createElement('div');
-        card.className = 'card order-row';
-        const info = document.createElement('div');
-        const h = document.createElement('h3');
-        h.textContent = `${o.item} · ${window.formatMoney(o.amount)}`;
-        const pill = document.createElement('span');
-        pill.className = 'pill ' + o.status; pill.textContent = LABEL[o.status] || o.status;
-        h.append(pill);
-        info.append(h);
-        const meta = document.createElement('div');
-        meta.className = 'meta';
-        line(meta, 'User ID', o.userId, true);
-        line(meta, 'Zone ID', o.zoneId, true);
-        if (o.txnRef) line(meta, 'Journal no.', o.txnRef, true);
-        if (o.phone) line(meta, 'Phone', o.phone, true);
-        line(meta, 'Order', o.id, true);
-        line(meta, 'Created', new Date(o.createdAt).toLocaleString());
-        if (o.note) line(meta, 'Note', o.note);
-        info.append(meta);
-        if (o.receiptFile) receipt(o, info);
-        card.append(info);
+      list.forEach((o) => box.append(orderCard(o)));
+    }
 
-        const act = document.createElement('div');
-        act.className = 'actions';
-        const call = (action, note) => api(`/api/admin/orders/${encodeURIComponent(o.id)}/${action}`, { note });
-        if (o.status === 'awaiting_verification') {
-          act.append(button('✓ Payment received', 'success', () => call('approve')));
-          act.append(button('✕ Reject', 'danger', () => {
-            const note = prompt('Reason shown to the buyer:', 'Payment not found in our bank account.');
-            if (note === null) throw new Error('Cancelled');
-            return call('reject', note);
-          }));
+    async function loadCounts() {
+      const toVerify = await api('/api/admin/orders?status=awaiting_verification');
+      $('verifyCount').hidden = !toVerify.length;
+      $('verifyCount').textContent = toVerify.length;
+    }
+
+    // ---- Chats view -----------------------------------------------------------
+    async function loadThreads() {
+      const { chats, unreadTotal } = await api('/api/admin/chats');
+      $('chatUnread').hidden = !unreadTotal;
+      $('chatUnread').textContent = unreadTotal;
+      document.title = (unreadTotal ? `(${unreadTotal}) ` : '') + 'Admin — Diamonds';
+      const box = $('threads');
+      box.innerHTML = '';
+      if (!chats.length) box.innerHTML = '<p class="hint" style="padding:12px">No chats yet.</p>';
+      for (const c of chats) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'thread-item' + (c.id === view.chatId ? ' active' : '') + (c.unread ? ' unread' : '');
+        const top = document.createElement('div');
+        top.className = 'thread-top';
+        const name = document.createElement('strong');
+        name.textContent = c.gameName;
+        const time = document.createElement('time');
+        time.textContent = new Date(c.lastMessageAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        top.append(name, time);
+        const sub = document.createElement('div');
+        sub.className = 'thread-sub';
+        sub.textContent = `${c.userId} (${c.zoneId})`;
+        if (c.orderStatus) {
+          const p = document.createElement('span');
+          p.className = 'pill ' + c.orderStatus; p.textContent = LABEL[c.orderStatus] || c.orderStatus;
+          sub.append(p);
         }
-        if (o.status === 'processing' || o.status === 'failed') {
-          act.append(button('💎 Mark delivered', 'success', () => call('delivered')));
+        const prev = document.createElement('div');
+        prev.className = 'thread-preview';
+        prev.textContent = c.preview;
+        b.append(top, sub, prev);
+        if (c.unread) {
+          const n = document.createElement('span');
+          n.className = 'count-badge'; n.textContent = c.unread;
+          top.append(n);
         }
-        if (o.status === 'processing') {
-          act.append(button('Delivery failed', 'danger', () => {
-            const note = prompt('Note shown to the buyer:', 'Delivery failed — we will refund you.');
-            if (note === null) throw new Error('Cancelled');
-            return call('fail', note);
-          }));
-        }
-        card.append(act);
-        box.append(card);
+        b.addEventListener('click', () => openChat(c.id));
+        box.append(b);
       }
     }
 
-    async function load() {
-      const f = $('filter').value;
-      render(await api('/api/admin/orders' + (f ? '?status=' + f : '')));
+    function threadSkeleton(c) {
+      const t = $('thread');
+      t.innerHTML = '';
+      const head = document.createElement('div');
+      head.className = 'thread-head';
+      const back = document.createElement('button');
+      back.type = 'button'; back.className = 'thread-back'; back.textContent = '←'; back.setAttribute('aria-label', 'Back to chats');
+      back.addEventListener('click', () => { view.chatId = null; $('chatsView').classList.remove('open'); loadThreads(); });
+      const who = document.createElement('div');
+      who.className = 'meta';
+      const name = document.createElement('strong');
+      name.textContent = c.gameName;
+      who.append(name);
+      line(who, 'ID', `${c.userId} (${c.zoneId})`, true);
+      head.append(back, who);
+      const orders = document.createElement('div');
+      orders.className = 'thread-orders'; orders.id = 'threadOrders';
+      const msgs = document.createElement('div');
+      msgs.className = 'chat-body'; msgs.id = 'threadBody';
+      msgs.innerHTML = '<div class="chat-list" id="threadList"></div>';
+      const form = document.createElement('form');
+      form.className = 'chat-compose'; form.id = 'reply';
+      form.innerHTML = `
+        <div class="chat-attach-preview" hidden><img alt="Photo to send"><button type="button" aria-label="Remove photo">✕</button></div>
+        <div class="chat-input-row">
+          <label class="chat-photo" title="Send a photo"><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M9 3 7.2 5H4a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-3.2L15 3H9zm3 5a5 5 0 1 1 0 10 5 5 0 0 1 0-10zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg><input type="file" accept="image/*" hidden></label>
+          <textarea rows="1" maxlength="1000" placeholder="Reply…"></textarea>
+          <button class="chat-send" type="submit" aria-label="Send">➤</button>
+        </div>
+        <div class="quick-replies"></div>
+        <div class="form-error"></div>`;
+      t.append(head, orders, msgs, form);
+      wireReply(form, c.id);
+    }
+
+    const QUICK = [
+      'Payment received ✅ Sending your diamonds now.',
+      'Please send a clear screenshot of your payment receipt.',
+      'We could not find this payment yet. Please check the amount and journal number.',
+      'Delivered 💎 Please restart the game if you don’t see them.',
+    ];
+
+    function wireReply(form, chatId) {
+      const ta = form.querySelector('textarea');
+      const file = form.querySelector('input[type=file]');
+      const prev = form.querySelector('.chat-attach-preview');
+      let image = null;
+      const qr = form.querySelector('.quick-replies');
+      for (const text of QUICK) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'quick'; b.textContent = text;
+        b.addEventListener('click', () => { ta.value = text; ta.focus(); });
+        qr.append(b);
+      }
+      file.addEventListener('change', async () => {
+        const f = file.files[0]; file.value = '';
+        if (!f) return;
+        image = await window.compressImage(f);
+        prev.querySelector('img').src = image; prev.hidden = false;
+      });
+      prev.querySelector('button').addEventListener('click', () => { image = null; prev.hidden = true; });
+      ta.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); form.requestSubmit(); }
+      });
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const text = ta.value.trim();
+        if (!text && !image) return;
+        form.classList.add('sending');
+        form.querySelector('.form-error').textContent = '';
+        try {
+          const m = await api(`/api/admin/chats/${encodeURIComponent(chatId)}/messages`, { text, image });
+          ta.value = ''; image = null; prev.hidden = true;
+          await addMessage(m);
+          scrollThread();
+        } catch (ex) { form.querySelector('.form-error').textContent = ex.message; }
+        form.classList.remove('sending');
+      });
+    }
+
+    async function addMessage(m) {
+      const list = $('threadList');
+      if (!list || list.querySelector(`[data-id="${m.id}"]`)) return;
+      // Shop's messages on the right, buyer's on the left.
+      const row = document.createElement('div');
+      row.className = 'chat-msg ' + (m.from === 'admin' ? 'buyer' : m.from === 'buyer' ? 'admin' : 'system');
+      row.dataset.id = m.id;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      row.append(bubble);
+      list.append(row);
+      view.lastId = Math.max(view.lastId, m.id);
+      if (m.image) {
+        const img = document.createElement('img');
+        img.alt = 'Photo';
+        bubble.append(img);
+        authImage(m.image).then((url) => {
+          if (!url) return;
+          img.src = url;
+          img.style.cursor = 'zoom-in';
+          img.addEventListener('click', () => window.open(url));
+          img.addEventListener('load', scrollThread);
+        });
+      }
+      if (m.text) {
+        const t = document.createElement('div');
+        t.className = 'text'; t.textContent = m.text;
+        bubble.append(t);
+      }
+      const time = document.createElement('time');
+      time.textContent = new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      bubble.append(time);
+    }
+
+    function scrollThread() {
+      const b = $('threadBody');
+      if (b) b.scrollTop = b.scrollHeight;
+    }
+
+    async function openChat(id) {
+      view.chatId = id;
+      view.lastId = 0;
+      $('chatsView').classList.add('open');
+      const c = await api(`/api/admin/chats/${encodeURIComponent(id)}`);
+      threadSkeleton(c);
+      renderThreadOrders(c.orders);
+      for (const m of c.messages) await addMessage(m);
+      scrollThread();
+      loadThreads();
+    }
+
+    function renderThreadOrders(orders) {
+      const box = $('threadOrders');
+      if (!box) return;
+      box.innerHTML = '';
+      // Newest order first; show only the latest 2 to keep the chat visible.
+      orders.slice(-2).reverse().forEach((o) => box.append(orderCard(o, { compact: true })));
+    }
+
+    async function pollThread() {
+      if (!view.chatId || view.name !== 'chats') return;
+      const b = $('threadBody');
+      const atBottom = b && b.scrollHeight - b.scrollTop - b.clientHeight < 60;
+      const c = await api(`/api/admin/chats/${encodeURIComponent(view.chatId)}?after=${view.lastId}`);
+      for (const m of c.messages) await addMessage(m);
+      renderThreadOrders(c.orders);
+      if (c.messages.length && atBottom) scrollThread();
+    }
+
+    // ---- Shell ----------------------------------------------------------------
+    function switchView(name) {
+      view.name = name;
+      document.querySelectorAll('.admin-tabs .tab').forEach((t) => t.classList.toggle('active', t.dataset.view === name));
+      $('ordersView').hidden = name !== 'orders';
+      $('chatsView').hidden = name !== 'chats';
+    }
+
+    async function refresh() {
+      await Promise.all([
+        view.name === 'orders' ? loadOrders() : Promise.resolve(),
+        loadThreads(),
+        loadCounts(),
+        pollThread(),
+      ]);
     }
 
     async function enter() {
       try {
-        await load();
+        await refresh();
         $('login').hidden = true; $('panel').hidden = false; $('logout').hidden = false;
       } catch (e) { $('loginErr').textContent = e.message; }
     }
@@ -178,9 +420,13 @@
       enter();
     });
     $('logout').addEventListener('click', (e) => { e.preventDefault(); logout(); });
-    $('filter').addEventListener('change', () => load().catch((e) => alert(e.message)));
-    $('refresh').addEventListener('click', () => load().catch((e) => alert(e.message)));
-    setInterval(() => { if (token && !$('panel').hidden) load().catch(() => {}); }, 30000);
+    document.querySelectorAll('.admin-tabs .tab').forEach((t) => t.addEventListener('click', () => {
+      switchView(t.dataset.view);
+      refresh().catch(() => {});
+    }));
+    $('filter').addEventListener('change', () => loadOrders().catch((e) => alert(e.message)));
+    $('refresh').addEventListener('click', () => refresh().catch((e) => alert(e.message)));
+    setInterval(() => { if (token && !$('panel').hidden) refresh().catch(() => {}); }, 5000);
     if (token) enter();
   })();
   </script>

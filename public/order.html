@@ -37,10 +37,12 @@
         </dl>
       </div>
       <a class="btn" id="payLink" hidden style="display:inline-block;text-decoration:none;margin-right:8px">Go to payment</a>
+      <button class="btn ghost" type="button" id="chatBtn" style="margin-right:8px">💬 Chat</button>
       <a class="btn ghost" href="/" style="display:inline-block;text-decoration:none">Top up again</a>
     </div>
   </main>
-  <script src="/money.js"></script>
+  <script src="/common.js"></script>
+  <script src="/chat.js"></script>
   <script>
   (() => {
     const $ = (id) => document.getElementById(id);
@@ -63,6 +65,7 @@
       return;
     }
 
+    $('chatBtn').addEventListener('click', () => window.Chat.open());
     async function load() {
       const res = await fetch('/api/orders/' + encodeURIComponent(id));
       if (!res.ok) {
@@ -81,7 +84,8 @@
       $('title').textContent = title;
       $('subtitle').textContent = o.note || sub;
       $('oId').textContent = o.id;
-      $('oPlayer').textContent = (o.nickname ? `${o.nickname} · ` : '') + `${o.userId} (${o.zoneId})`;
+      $('oPlayer').textContent = (o.gameName || o.nickname ? `${o.gameName || o.nickname} · ` : '') + `${o.userId} (${o.zoneId})`;
+      if (o.chatId) window.Chat.attach(o.chatId);
       $('oItem').textContent = o.item;
       $('oAmount').textContent = window.formatMoney(o.amount) + (o.txnRef ? ` · ref ${o.txnRef}` : '');
       $('oCreated').textContent = new Date(o.createdAt).toLocaleString();

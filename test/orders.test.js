@@ -10,7 +10,7 @@ const supplier = {
   lookupPlayer: async (u) => (u.startsWith('0') ? { ok: false, error: 'Player not found' } : { ok: true, nickname: 'Tester' }),
   fulfill: async (o) => { fulfillCalls++; return { ok: true, reference: `sup_${o.id}` }; },
 };
-const validOrder = { userId: '123456789', zoneId: '2001', packageId: 'dm-86' };
+const validOrder = { userId: '123456789', zoneId: '2001', packageId: 'dm-86', gameName: 'Tester' };
 
 before(async () => { t = await start({ payment, supplier }); });
 after(() => t.server.close());
@@ -36,12 +36,11 @@ test('order uses server-side price, ignores client price', async () => {
   const o = await (await fetch(`${t.base}/api/orders/${orderId}`)).json();
   assert.equal(o.amount, 125);
   assert.equal(o.status, 'pending_payment');
-  assert.equal(o.phone, undefined, 'phone is not exposed publicly');
 });
 
-test('rejects unknown package and bad phone', async () => {
+test('rejects unknown package and missing game name', async () => {
   assert.equal((await t.post('/api/orders', { ...validOrder, packageId: 'nope' })).status, 400);
-  assert.equal((await t.post('/api/orders', { ...validOrder, phone: '<script>' })).status, 400);
+  assert.equal((await t.post('/api/orders', { ...validOrder, gameName: '   ' })).status, 400);
 });
 
 test('webhook with bad signature is rejected', async () => {

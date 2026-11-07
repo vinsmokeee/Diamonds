@@ -7,6 +7,7 @@
 
   const money = (n) => window.formatMoney(n, state.catalog.currencySymbol);
   const idKey = () => `${$('userId').value.trim()}|${$('zoneId').value.trim()}`;
+  const gameNameValid = () => $('gameName').value.trim().length > 0;
   const idsValid = () => /^\d{5,12}$/.test($('userId').value.trim()) && /^\d{1,6}$/.test($('zoneId').value.trim());
 
   function el(tag, cls) {
@@ -37,8 +38,8 @@
   }
 
   function accountReady() {
-    if (state.catalog.verifiesPlayer) return state.player && state.checkedKey === idKey();
-    return idsValid() && $('confirmId').checked;
+    if (state.catalog.verifiesPlayer) return state.player && state.checkedKey === idKey() && gameNameValid();
+    return idsValid() && $('confirmId').checked && gameNameValid();
   }
 
   function update() {
@@ -48,7 +49,7 @@
     if (state.catalog.verifiesPlayer) {
       if (state.player && state.checkedKey === idKey()) who = `${state.player} (${uid})`;
     } else if (idsValid()) {
-      who = `${uid} (${zid})`;
+      who = (gameNameValid() ? `${$('gameName').value.trim()} · ` : '') + `${uid} (${zid})`;
     }
     $('sumPlayer').textContent = who;
     $('sumItem').textContent = state.pkg ? state.pkg.label : '—';
@@ -96,12 +97,14 @@
     btn.disabled = true;
     btn.textContent = 'Creating order…';
     try {
-      const { checkoutUrl } = await api('/api/orders', {
+      const { checkoutUrl, chatId } = await api('/api/orders', {
         userId: $('userId').value.trim(),
         zoneId: $('zoneId').value.trim(),
         packageId: state.pkg.id,
-        phone: $('phone').value.trim(),
+        gameName: $('gameName').value.trim(),
+        chatId: window.Chat ? window.Chat.id() : null,
       });
+      if (window.Chat) window.Chat.attach(chatId);
       window.location.href = checkoutUrl;
     } catch (e) {
       $('formError').textContent = e.message;
@@ -119,6 +122,7 @@
     $(id).addEventListener('keydown', (e) => { if (e.key === 'Enter') checkPlayer(); });
   }
   $('confirmId').addEventListener('change', update);
+  $('gameName').addEventListener('input', update);
   $('checkBtn').addEventListener('click', checkPlayer);
   $('buyBtn').addEventListener('click', buy);
   document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => {

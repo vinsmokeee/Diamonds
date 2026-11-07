@@ -1,9 +1,9 @@
-// Minimal JSON-file order store. Good enough to start; swap for Postgres/SQLite
-// before real traffic (this keeps everything in memory and rewrites the file on save).
+// Minimal JSON-file record store (used for orders and chats). Good enough to start;
+// swap for Postgres/SQLite before real traffic (keeps everything in memory, rewrites the file on save).
 const fs = require('fs');
 const path = require('path');
 
-class OrderStore {
+class JsonStore {
   constructor(file) {
     this.file = file;
     this.orders = new Map();
@@ -50,4 +50,4 @@ class OrderStore {
   }
 }
 
-module.exports = { OrderStore };
+module.exports = { JsonStore, OrderStore: JsonStore };

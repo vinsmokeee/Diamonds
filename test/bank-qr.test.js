@@ -8,7 +8,7 @@ const payment = require('../server/providers/payment-bank-qr');
 const supplier = require('../server/providers/supplier-manual');
 
 let t;
-const validOrder = { userId: '123456789', zoneId: '2001', packageId: 'dm-706', phone: '+975 17123456' };
+const validOrder = { userId: '123456789', zoneId: '2001', packageId: 'dm-706', gameName: 'LaneKing' };
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 before(async () => { t = await start({ payment, supplier }); });
@@ -44,6 +44,11 @@ test('full flow: submit proof -> admin approves -> admin marks delivered', async
   assert.equal(stored.txnRef, 'JN123456789');
   assert.ok(fs.existsSync(path.join(t.receiptsDir, stored.receiptFile)));
 
+  // the proof also lands in the order's chat, with the screenshot
+  const chat = t.chats.get(stored.chatId);
+  const proofMsg = chat.messages.find((m) => m.text.includes('JN123456789'));
+  assert.ok(proofMsg && proofMsg.image.startsWith('receipts/'));
+
   // second submission is refused
   assert.equal((await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: '99999999' })).status, 409);
 
@@ -58,6 +63,12 @@ test('full flow: submit proof -> admin approves -> admin marks delivered', async
 
   assert.equal((await t.post(`/api/admin/orders/${orderId}/delivered`, {}, t.admin)).status, 200);
   assert.equal(t.store.get(orderId).status, 'completed');
+
+  // the buyer sees each step in the chat
+  const texts = t.chats.get(stored.chatId).messages.map((m) => m.text).join('\n');
+  assert.match(texts, /New order/);
+  assert.match(texts, /Payment confirmed/);
+  assert.match(texts, /delivered/);
 });
 
 test('the same journal number cannot be reused on another order', async () => {

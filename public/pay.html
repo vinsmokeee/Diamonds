@@ -31,7 +31,7 @@
       <ol class="steps">
         <li>Open your mobile banking app and scan the QR (or save it and scan from gallery).</li>
         <li>Pay <strong id="amount2"></strong>. If the app has a remarks field, write your Order ID.</li>
-        <li>Enter the <strong>journal / reference number</strong> from your receipt below and attach a screenshot.</li>
+        <li>Enter the <strong>journal / reference number</strong> from your receipt below and attach a screenshot. It also goes to our chat so we can check it quickly.</li>
       </ol>
 
       <form id="proofForm" style="text-align:left">
@@ -47,6 +47,7 @@
         <button class="btn block" type="submit" id="submitBtn">I have paid — submit</button>
         <div class="form-error" id="err" role="alert"></div>
       </form>
+      <button class="btn ghost block" type="button" id="chatBtn" style="margin-top:12px">💬 Problem paying? Chat with us</button>
       <p class="hint" id="support"></p>
     </div>
 
@@ -56,7 +57,8 @@
       <a class="btn ghost" id="msgLink" href="/" style="display:inline-block;text-decoration:none">Back to shop</a>
     </div>
   </main>
-  <script src="/money.js"></script>
+  <script src="/common.js"></script>
+  <script src="/chat.js"></script>
   <script>
   (async () => {
     const $ = (id) => document.getElementById(id);
@@ -91,7 +93,9 @@
     if (info.accountNumber) $('accNo').textContent = info.accountNumber;
     else { $('accNo').remove(); $('accNoLabel').remove(); }
     $('orderId').textContent = o.id;
-    if (info.support) $('support').textContent = `Need help? ${info.support}`;
+    if (info.support) $('support').textContent = `Also: ${info.support}`;
+    window.Chat.attach(o.chatId);
+    $('chatBtn').addEventListener('click', () => window.Chat.open());
     $('payCard').hidden = false;
 
     $('copyId').addEventListener('click', async () => {
@@ -103,13 +107,7 @@
       const file = e.target.files[0];
       if (!file) return;
       try {
-        const img = await createImageBitmap(file);
-        const scale = Math.min(1, 1400 / Math.max(img.width, img.height));
-        const c = document.createElement('canvas');
-        c.width = Math.round(img.width * scale);
-        c.height = Math.round(img.height * scale);
-        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        screenshot = c.toDataURL('image/jpeg', 0.8);
+        screenshot = await window.compressImage(file);
         const preview = new Image();
         preview.src = screenshot;
         preview.alt = 'Receipt preview';

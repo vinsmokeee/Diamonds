@@ -1,16 +1,14 @@
 const express = require('express');
 const crypto = require('crypto');
-const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const catalog = require('./catalog');
+const { saveDataUrlImage } = require('./images');
+const { createChatService, mountChatRoutes, cleanName } = require('./chat');
 
 const USER_ID = /^\d{5,12}$/;
 const ZONE_ID = /^\d{1,6}$/;
-const PHONE = /^[+\d][\d\s-]{6,18}$/;
 const TXN_REF = /^[A-Za-z0-9-]{4,40}$/;
-const IMAGE = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/;
-const MAX_RECEIPT_BYTES = 2 * 1024 * 1024;
 
 // Order lifecycle:
 //   pending_payment -> awaiting_verification -> processing -> completed
@@ -43,6 +41,8 @@ function publicOrder(o) {
     userId: o.userId,
     zoneId: o.zoneId,
     nickname: o.nickname,
+    gameName: o.gameName,
+    chatId: o.chatId,
     txnRef: o.txnRef ? `••••${o.txnRef.slice(-4)}` : null,
     createdAt: o.createdAt,
     updatedAt: o.updatedAt,
@@ -56,7 +56,12 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-function createApp({ store, payment, supplier, receiptsDir, rateLimits = true }) {
+function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true }) {
+  const receiptsDir = dataDir ? path.join(dataDir, 'receipts') : null;
+  const chat = createChatService({ chats, dataDir });
+  const limiter = (opts) => rateLimit({ ...opts, enabled: rateLimits });
+  const money = (n) => `${config.currencySymbol} ${n.toLocaleString('en-IN')}`;
+  const notify = (order, text, audience) => order && order.chatId && chat.post(order.chatId, { from: 'system', text, audience });
   const app = express();
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
@@ -86,7 +91,7 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
     res.json({ ...config.bank, currencySymbol: config.currencySymbol, support: config.support });
   });
 
-  const lookupLimiter = rateLimit({ windowMs: 60_000, max: 20, enabled: rateLimits });
+  const lookupLimiter = limiter({ windowMs: 60_000, max: 20 });
   app.post('/api/players/lookup', lookupLimiter, async (req, res) => {
     const userId = String(req.body.userId || '').trim();
     const zoneId = String(req.body.zoneId || '').trim();
@@ -103,16 +108,16 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
     }
   });
 
-  const orderLimiter = rateLimit({ windowMs: 60_000, max: 10, enabled: rateLimits });
+  const orderLimiter = limiter({ windowMs: 60_000, max: 10 });
   app.post('/api/orders', orderLimiter, async (req, res) => {
     const userId = String(req.body.userId || '').trim();
     const zoneId = String(req.body.zoneId || '').trim();
-    const phone = String(req.body.phone || '').trim();
+    const gameName = cleanName(req.body.gameName);
     const pkg = catalog.getPackage(String(req.body.packageId || ''));
 
     if (!USER_ID.test(userId) || !ZONE_ID.test(zoneId)) return res.status(400).json({ error: 'Invalid User ID or Zone ID.' });
     if (!pkg) return res.status(400).json({ error: 'Choose a package.' });
-    if (phone && !PHONE.test(phone)) return res.status(400).json({ error: 'Invalid phone number.' });
+    if (!gameName) return res.status(400).json({ error: 'Enter your game name.' });
 
     try {
       const player = await supplier.lookupPlayer(userId, zoneId);
@@ -129,15 +134,22 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
         userId,
         zoneId,
         nickname: player.nickname || null,
-        phone: phone || null,
+        gameName,
         paymentProvider: payment.name,
         createdAt: now,
         updatedAt: now,
       });
 
+      // Reuse the buyer's open chat if it is for the same account, otherwise start one.
+      let c = req.body.chatId ? chats.get(String(req.body.chatId)) : null;
+      if (c && c.userId === userId && c.zoneId === zoneId) chats.update(c.id, { orderIds: [...c.orderIds, order.id], gameName });
+      else c = chat.create({ gameName, userId, zoneId, orderId: order.id });
+      store.update(order.id, { chatId: c.id });
+      notify(order, `🛒 New order: ${order.item} · ${money(order.amount)}`, 'admin');
+
       const checkout = await payment.createCheckout(order);
       if (checkout.reference) store.update(order.id, { paymentRef: checkout.reference });
-      res.status(201).json({ orderId: order.id, checkoutUrl: checkout.checkoutUrl });
+      res.status(201).json({ orderId: order.id, chatId: c.id, checkoutUrl: checkout.checkoutUrl });
     } catch (e) {
       console.error('order create failed', e);
       res.status(502).json({ error: 'Could not start payment. Please try again.' });
@@ -151,7 +163,7 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
   });
 
   // ---- Manual payment proof (bank QR) --------------------------------------------
-  const proofLimiter = rateLimit({ windowMs: 60_000, max: 6, enabled: rateLimits });
+  const proofLimiter = limiter({ windowMs: 60_000, max: 6 });
   app.post('/api/orders/:id/payment-proof', proofLimiter, (req, res) => {
     if (!payment.manual) return res.status(404).json({ error: 'Not found' });
     const o = store.get(req.params.id);
@@ -164,16 +176,10 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
     if (dupe) return res.status(409).json({ error: 'This reference number was already used for another order.' });
 
     let receiptFile = null;
-    if (req.body.screenshot) {
-      const m = IMAGE.exec(String(req.body.screenshot));
-      if (!m) return res.status(400).json({ error: 'Screenshot must be a JPG, PNG or WebP image.' });
-      const buf = Buffer.from(m[2], 'base64');
-      if (buf.length > MAX_RECEIPT_BYTES) return res.status(400).json({ error: 'Screenshot is too large (max 2 MB).' });
-      if (receiptsDir) {
-        fs.mkdirSync(receiptsDir, { recursive: true });
-        receiptFile = `${o.id}.${m[1] === 'jpeg' ? 'jpg' : m[1]}`;
-        fs.writeFileSync(path.join(receiptsDir, receiptFile), buf);
-      }
+    if (req.body.screenshot && receiptsDir) {
+      const r = saveDataUrlImage(req.body.screenshot, receiptsDir);
+      if (r.error) return res.status(400).json({ error: r.error.replace('Photo', 'Screenshot') });
+      receiptFile = r.file;
     }
 
     const updated = store.transition(o.id, 'pending_payment', 'awaiting_verification', {
@@ -182,6 +188,13 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
       paymentSubmittedAt: new Date().toISOString(),
     });
     if (!updated) return res.status(409).json({ error: 'Payment was already submitted for this order.' });
+    if (updated.chatId) {
+      chat.post(updated.chatId, {
+        from: 'buyer',
+        text: `💳 Payment submitted for ${updated.item}\nAmount: ${money(updated.amount)}\nJournal no.: ${txnRef}`,
+        image: receiptFile ? `receipts/${receiptFile}` : null,
+      });
+    }
     res.json(publicOrder(updated));
   });
 
@@ -227,7 +240,7 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
   }
 
   // ---- Admin ----------------------------------------------------------------------
-  const adminLimiter = rateLimit({ windowMs: 60_000, max: 120, enabled: rateLimits });
+  const adminLimiter = limiter({ windowMs: 60_000, max: 120 });
   function requireAdmin(req, res, next) {
     const token = (req.get('authorization') || '').replace(/^Bearer /, '');
     if (!config.adminToken || !safeEqual(token, config.adminToken)) return res.status(401).json({ error: 'Unauthorized' });
@@ -265,8 +278,17 @@ function createApp({ store, payment, supplier, receiptsDir, rateLimits = true })
     const note = String(req.body.note || '').slice(0, 300);
     const o = await fn(req.params.id, note);
     if (!o) return res.status(409).json({ error: `Can't ${req.params.action} an order in status "${store.get(req.params.id).status}".` });
+    const NOTES = {
+      approve: '✅ Payment confirmed. We are sending your diamonds now.',
+      reject: `❌ Payment could not be verified${note ? `: ${note}` : '.'}`,
+      delivered: `💎 ${o.item} delivered to ${o.userId} (${o.zoneId}). Thank you!`,
+      fail: `⚠️ Delivery problem${note ? `: ${note}` : '.'}`,
+    };
+    notify(o, NOTES[req.params.action], 'buyer');
     res.json(o);
   });
+
+  mountChatRoutes(app, { chats, orders: store, service: chat, rateLimit: limiter, adminSummary: (o) => o });
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 

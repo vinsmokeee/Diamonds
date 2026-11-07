@@ -1,11 +1,15 @@
 const path = require('path');
 const config = require('./config');
 const { createApp } = require('./app');
-const { OrderStore } = require('./store');
+const { JsonStore } = require('./store');
 const providers = require('./providers');
 
-const store = new OrderStore(path.join(config.dataDir, 'orders.json'));
-const app = createApp({ store, ...providers, receiptsDir: path.join(config.dataDir, 'receipts') });
+const app = createApp({
+  store: new JsonStore(path.join(config.dataDir, 'orders.json')),
+  chats: new JsonStore(path.join(config.dataDir, 'chats.json')),
+  dataDir: config.dataDir,
+  ...providers,
+});
 
 app.listen(config.port, () => {
   console.log(`Diamonds running at ${config.baseUrl} (payment: ${providers.payment.name}, supplier: ${providers.supplier.name})`);
