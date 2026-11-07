@@ -85,7 +85,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
       currency: config.currency,
       currencySymbol: config.currencySymbol,
       packages: catalog.packages.map((p) => ({ ...p, label: catalog.label(p) })),
-      verifiesPlayer: !supplier.manual,
+      verifiesPlayer: supplier.verifiesPlayer ?? !supplier.manual,
       support: config.support,
     });
   });
@@ -204,20 +204,107 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
   });
 
   // ---- Payment confirmed -> deliver -----------------------------------------------
-  async function deliver(orderId, from, patch) {
-    // Only one caller can win this transition, so retries can't double-deliver.
-    const order = store.transition(orderId, from, 'processing', { paidAt: new Date().toISOString(), ...patch });
-    if (!order) return null;
+  const BUYER_FAIL_NOTE = 'Delivery is delayed — we are fixing it, or we will refund you.';
+
+  function markDelivered(orderId, from, patch = {}) {
+    const o = store.transition(orderId, from, 'completed', { completedAt: new Date().toISOString(), ...patch });
+    if (o) notify(o, `💎 ${o.item} delivered to ${o.userId} (${o.zoneId}). Thank you!`, 'buyer');
+    return o;
+  }
+
+  function markDeliveryFailed(orderId, reason) {
+    const o = store.transition(orderId, 'processing', 'failed', { note: BUYER_FAIL_NOTE, deliveryError: reason });
+    if (!o) return null;
+    notify(o, `⚠️ ${BUYER_FAIL_NOTE}`, 'buyer');
+    if (o.chatId) {
+      chat.post(o.chatId, {
+        from: 'system',
+        audience: 'admin',
+        adminOnly: true,
+        text: `🔧 Automatic delivery failed: ${reason}\nPress "Retry delivery", or top up by hand and press "Delivered by hand".`,
+      });
+    }
+    return o;
+  }
+
+  // Ask the supplier to deliver, and record what happened.
+  async function runFulfil(orderId) {
+    const order = store.get(orderId);
     try {
       const r = await supplier.fulfill(order);
-      if (!r.ok) return store.transition(orderId, 'processing', 'failed', { note: r.error || 'Delivery failed — we will retry or refund.' });
-      if (r.pending) return order; // manual supplier: admin marks delivered later
-      return store.transition(orderId, 'processing', 'completed', { supplierRef: r.reference, completedAt: new Date().toISOString() });
+      if (!r.ok) return markDeliveryFailed(orderId, r.error || 'Supplier error');
+      if (r.pending) {
+        // Manual supplier (admin marks delivered) or an async top-up the sync loop/webhook will finish.
+        return store.update(orderId, { supplierRef: r.reference || null, ...(r.warning ? { deliveryWarning: r.warning } : {}) });
+      }
+      return markDelivered(orderId, 'processing', { supplierRef: r.reference });
     } catch (e) {
       console.error('fulfil failed', e);
-      return store.transition(orderId, 'processing', 'failed', { note: 'Delivery failed — we will retry or refund.' });
+      return markDeliveryFailed(orderId, e.message || 'Supplier error');
     }
   }
+
+  async function deliver(orderId, from, patch) {
+    // Only one caller can win this transition, so retries can't double-deliver.
+    const current = store.get(orderId);
+    const attempts = (current?.deliveryAttempts || 0) + 1;
+    const order = store.transition(orderId, from, 'processing', {
+      ...(from === 'failed' ? {} : { paidAt: new Date().toISOString() }),
+      deliveryAttempts: attempts,
+      deliveryError: null,
+      deliveryWarning: null,
+      note: null,
+      ...patch,
+    });
+    if (!order) return null;
+    notify(order, from === 'failed' ? '🔁 Sending your diamonds again…' : '✅ Payment confirmed. We are sending your diamonds now.', 'buyer');
+    return runFulfil(orderId);
+  }
+
+  // Apply a supplier status update (from polling or a webhook) to our order.
+  function applySupplierStatus(order, update) {
+    if (!order || order.status !== 'processing') return;
+    if (update.status === 'completed') markDelivered(order.id, 'processing', { supplierRef: update.reference || order.supplierRef });
+    else if (update.status === 'failed') markDeliveryFailed(order.id, update.error || 'Supplier failed the top-up');
+  }
+
+  // Safety net for automatic suppliers: finish orders whose webhook never came,
+  // and resend ones whose first request timed out (same idempotency key = no double charge).
+  let syncing = false;
+  async function syncSupplierOrders() {
+    if (supplier.manual || !supplier.checkOrder || syncing) return;
+    syncing = true;
+    try {
+      for (const o of store.list().filter((x) => x.status === 'processing')) {
+        try {
+          if (o.supplierRef) applySupplierStatus(o, await supplier.checkOrder(o.supplierRef));
+          else await runFulfil(o.id);
+        } catch (e) {
+          console.error('supplier sync failed for', o.id, e.message);
+        }
+      }
+    } finally {
+      syncing = false;
+    }
+  }
+  app.locals.syncSupplierOrders = syncSupplierOrders;
+
+  // Supplier delivery webhooks (e.g. FazerCards order.status_changed).
+  const seenSupplierEvents = new Set();
+  app.post('/api/webhooks/supplier', (req, res) => {
+    if (!supplier.parseWebhook) return res.status(404).json({ error: 'Not found' });
+    const event = supplier.parseWebhook(req);
+    if (!event) return res.status(401).json({ error: 'Bad signature' });
+    if (event.eventId && seenSupplierEvents.has(event.eventId)) return res.json({ received: true, duplicate: true });
+    if (event.eventId) {
+      seenSupplierEvents.add(event.eventId);
+      if (seenSupplierEvents.size > 5000) seenSupplierEvents.delete(seenSupplierEvents.values().next().value);
+    }
+    if (!event.test && !event.ignore && event.reference) {
+      applySupplierStatus(store.list().find((o) => o.supplierRef === event.reference), event);
+    }
+    res.json({ received: true });
+  });
 
   // For automated gateways that send webhooks.
   app.post('/api/webhooks/payment', async (req, res) => {
@@ -267,13 +354,31 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     res.sendFile(path.join(receiptsDir, path.basename(o.receiptFile)));
   });
 
+  app.get('/api/admin/supplier', async (_req, res) => {
+    const info = { name: supplier.name, automatic: !supplier.manual };
+    if (supplier.getBalance) {
+      try { Object.assign(info, await supplier.getBalance()); } catch (e) { info.error = e.message; }
+    }
+    res.json(info);
+  });
+
+  // Each action returns the updated order and posts its own chat notes.
   const ACTIONS = {
     // Payment seen in the bank app -> start delivery.
     approve: (id) => deliver(id, 'awaiting_verification', {}),
-    reject: (id, note) => store.transition(id, 'awaiting_verification', 'payment_failed', { note: note || 'Payment could not be verified.' }),
-    delivered: (id) => store.transition(id, 'processing', 'completed', { completedAt: new Date().toISOString() })
-      || store.transition(id, 'failed', 'completed', { completedAt: new Date().toISOString() }),
-    fail: (id, note) => store.transition(id, 'processing', 'failed', { note: note || 'Delivery failed — we will refund you.' }),
+    reject: (id, note) => {
+      const o = store.transition(id, 'awaiting_verification', 'payment_failed', { note: note || 'Payment could not be verified.' });
+      if (o) notify(o, `❌ Payment could not be verified${note ? `: ${note}` : '.'}`, 'buyer');
+      return o;
+    },
+    delivered: (id) => markDelivered(id, 'processing') || markDelivered(id, 'failed'),
+    fail: (id, note) => {
+      const o = store.transition(id, 'processing', 'failed', { note: note || 'Delivery failed — we will refund you.' });
+      if (o) notify(o, `⚠️ Delivery problem${note ? `: ${note}` : '.'}`, 'buyer');
+      return o;
+    },
+    // Automatic suppliers only: try the top-up again (new attempt = new idempotency key).
+    retry: (id) => (supplier.manual ? null : deliver(id, 'failed', {})),
   };
 
   app.post('/api/admin/orders/:id/:action', async (req, res) => {
@@ -283,14 +388,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     const note = String(req.body.note || '').slice(0, 300);
     const o = await fn(req.params.id, note);
     if (!o) return res.status(409).json({ error: `Can't ${req.params.action} an order in status "${store.get(req.params.id).status}".` });
-    const NOTES = {
-      approve: '✅ Payment confirmed. We are sending your diamonds now.',
-      reject: `❌ Payment could not be verified${note ? `: ${note}` : '.'}`,
-      delivered: `💎 ${o.item} delivered to ${o.userId} (${o.zoneId}). Thank you!`,
-      fail: `⚠️ Delivery problem${note ? `: ${note}` : '.'}`,
-    };
-    notify(o, NOTES[req.params.action], 'buyer');
-    res.json(o);
+    res.json(store.get(req.params.id));
   });
 
   mountChatRoutes(app, {

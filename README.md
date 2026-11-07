@@ -88,7 +88,26 @@ server/store.js    JSON-file storage for orders + chats (move to SQLite/Postgres
 server/providers/  payment + supplier adapters
 ```
 
-## Later: automation
+## Automatic delivery with FazerCards
+
+When this is set up, pressing **✓ Payment received** tells FazerCards to send the diamonds straight to the player's User ID and Zone ID. You don't have to top up by hand.
+
+**Setup:**
+1. **Get an API key.** Create a reseller account at reseller.fazercards.com, add balance, and copy your **API key** from the dashboard.
+2. **List the products.** Run `FAZER_API_KEY=fc_... USD_TO_NU=84 MARGIN=15 npm run fazer:offers`. This shows FazerCards' Mobile Legends categories and products, what each costs you in Nu., and a suggested price at your margin. It also tells you whether nickname checking is available.
+3. **Match your packages.** Fill in `config/fazercards.json` with the FazerCards product ID for each package. Leave a package as `""` to deliver it by hand. Update your prices in `server/catalog.js` so each one makes a profit.
+4. **Turn it on.** Set `SUPPLIER_PROVIDER=fazercards` and `FAZER_API_KEY=...`, then restart the site.
+5. **Webhook (optional, faster).** In FazerCards' webhook settings, set the URL to `https://<your-site>/api/webhooks/supplier`, and copy the signing secret into `FAZER_WEBHOOK_SECRET`. Without this, the site checks unfinished top-ups every 30 seconds.
+
+**What happens on each order:**
+- **Normal top-up:** the order shows **Deliver** while FazerCards works, then **Delivered**. The buyer's chat shows "💎 Delivered".
+- **Top-up fails** (for example, an unsupported region): the buyer sees "Delivery is delayed". You see the real reason in a private 🔒 note, with **🔁 Retry delivery** and **💎 Delivered by hand** buttons.
+- **No double charging:** every top-up request carries a unique key, so a network retry can never pay FazerCards twice for one order.
+- **Balance warning:** the admin page shows your FazerCards balance and turns red when it's low.
+
+**Before going live**, test one small package on a real Bhutanese account. FazerCards funds balances in crypto (USDT and similar), so check that you can pay them from Bhutan.
+
+## Later: more automation
 
 - **Automatic delivery.** If your diamond supplier has an API, write `server/providers/supplier-<name>.js` with `lookupPlayer()` and `fulfill()`, and set `SUPPLIER_PROVIDER`. Orders then deliver as soon as you approve the payment, and buyers see their in-game nickname before paying.
 - **Automatic payment confirmation.** If your bank gives merchants a payment API or webhooks, add `payment-<name>.js`. There is already a webhook route in `server/app.js` for this.

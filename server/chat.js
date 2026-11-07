@@ -40,18 +40,19 @@ function createChatService({ chats, dataDir }) {
   /**
    * Append a message. from: 'buyer' | 'admin' | 'system'. image: 'chat/<file>' | 'receipts/<file>'.
    * System notes count as unread only for `audience` ('buyer' | 'admin'), not for whoever caused them.
+   * `adminOnly` notes are never shown to the buyer.
    */
-  function post(chatId, { from, text = '', image = null, audience = null }) {
+  function post(chatId, { from, text = '', image = null, audience = null, adminOnly = false }) {
     const c = chats.get(chatId);
     if (!c) return null;
-    const msg = { id: c.seq + 1, from, text, image, at: new Date().toISOString() };
+    const msg = { id: c.seq + 1, from, text, image, at: new Date().toISOString(), ...(adminOnly ? { adminOnly: true } : {}) };
     const messages = [...c.messages, msg].slice(-MAX_MESSAGES);
     return chats.update(chatId, {
       seq: msg.id,
       messages,
       lastMessageAt: msg.at,
       adminUnread: from === 'admin' ? 0 : c.adminUnread + (from === 'buyer' || audience === 'admin' ? 1 : 0),
-      buyerUnread: from === 'buyer' ? 0 : c.buyerUnread + (from === 'admin' || audience === 'buyer' ? 1 : 0),
+      buyerUnread: from === 'buyer' ? 0 : c.buyerUnread + (!adminOnly && (from === 'admin' || audience === 'buyer') ? 1 : 0),
     }) && msg;
   }
 
@@ -63,7 +64,14 @@ function createChatService({ chats, dataDir }) {
   }
 
   function publicMessage(m, urlBase) {
-    return { id: m.id, from: m.from, text: m.text, at: m.at, image: m.image ? `${urlBase}/images/${m.id}` : null };
+    return {
+      id: m.id,
+      from: m.from,
+      text: m.text,
+      at: m.at,
+      image: m.image ? `${urlBase}/images/${m.id}` : null,
+      ...(m.adminOnly ? { adminOnly: true } : {}),
+    };
   }
 
   /** Validate text/photo from a request body, save the photo. Returns { text, image } or { error }. */
@@ -94,7 +102,7 @@ function mountChatRoutes(app, { chats, orders, service, rateLimit, adminSummary,
     userId: c.userId,
     zoneId: c.zoneId,
     orderIds: c.orderIds,
-    messages: c.messages.filter((m) => m.id > after).map((m) => service.publicMessage(m, `/api/chats/${c.id}`)),
+    messages: c.messages.filter((m) => m.id > after && !m.adminOnly).map((m) => service.publicMessage(m, `/api/chats/${c.id}`)),
     unread: c.buyerUnread,
   });
 
@@ -129,7 +137,7 @@ function mountChatRoutes(app, { chats, orders, service, rateLimit, adminSummary,
 
   app.get('/api/chats/:id/images/:msgId', (req, res) => {
     const c = chats.get(req.params.id);
-    const file = c && service.imagePath(c.messages.find((m) => m.id === Number(req.params.msgId)));
+    const file = c && service.imagePath(c.messages.find((m) => m.id === Number(req.params.msgId) && !m.adminOnly));
     if (!file) return res.status(404).json({ error: 'Not found' });
     res.set('Cache-Control', 'private, max-age=86400').sendFile(file, (err) => err && !res.headersSent && res.status(404).end());
   });
@@ -149,7 +157,7 @@ function mountChatRoutes(app, { chats, orders, service, rateLimit, adminSummary,
           zoneId: c.zoneId,
           unread: c.adminUnread,
           lastMessageAt: c.lastMessageAt,
-          preview: last ? `${last.from === 'admin' ? 'You: ' : ''}${last.text || '📷 Photo'}`.slice(0, 80) : '',
+          preview: last ? `${last.from === 'admin' ? 'You: ' : last.adminOnly ? '🔒 ' : ''}${last.text || '📷 Photo'}`.slice(0, 80) : '',
           orderStatus: order ? order.status : null,
         };
       });

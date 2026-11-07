@@ -8,7 +8,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js",
-    "telegram:chat-id": "node scripts/telegram-chat-id.js"
+    "telegram:chat-id": "node scripts/telegram-chat-id.js",
+    "fazer:offers": "node scripts/fazercards-offers.js"
   },
   "engines": {
     "node": ">=20"

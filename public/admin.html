@@ -29,6 +29,7 @@
       <div class="tabs admin-tabs" role="tablist">
         <button class="tab active" data-view="chats" role="tab">💬 Chats <span class="count-badge" id="chatUnread" hidden></span></button>
         <button class="tab" data-view="orders" role="tab">🧾 Orders <span class="count-badge" id="verifyCount" hidden></span></button>
+        <span class="supplier-pill" id="supplierPill" hidden></span>
         <button class="tab" id="alertsBtn" type="button" style="margin-left:auto" title="Play a sound and show a pop-up when a buyer pays or writes">🔔 Alerts off</button>
       </div>
 
@@ -71,6 +72,7 @@
     let token = '';
     try { token = localStorage.getItem('adminToken') || ''; } catch {}
     const view = { name: 'chats', chatId: null, lastId: 0 };
+    const supplierInfo = { automatic: false };
     const imageCache = new Map();
 
     async function api(path, body) {
@@ -144,7 +146,11 @@
       if (o.txnRef) line(meta, 'Journal no.', o.txnRef, true);
       if (!compact) line(meta, 'Order', o.id, true);
       line(meta, 'Created', new Date(o.createdAt).toLocaleString());
-      if (o.note) line(meta, 'Note', o.note);
+      if (o.deliveryError) line(meta, '⚠️ Delivery error', o.deliveryError);
+      if (o.deliveryWarning && o.status === 'processing') line(meta, '⏳', o.deliveryWarning);
+      if (o.supplierRef) line(meta, 'Supplier order', o.supplierRef, true);
+      if (o.status === 'processing' && supplierInfo.automatic && !o.deliveryWarning) line(meta, '⏳', 'Supplier is delivering…');
+      if (o.note && !o.deliveryError) line(meta, 'Note', o.note);
       info.append(meta);
       if (o.receiptFile && !compact) {
         authImage(`/api/admin/orders/${encodeURIComponent(o.id)}/receipt`).then((url) => {
@@ -168,7 +174,13 @@
           return call('reject', note);
         }));
       }
-      if (o.status === 'processing' || o.status === 'failed') act.append(button('💎 Mark delivered', 'success', () => call('delivered')));
+      if (o.status === 'failed' && supplierInfo.automatic) act.append(button('🔁 Retry delivery', 'success', () => call('retry')));
+      if (o.status === 'processing' || o.status === 'failed') {
+        act.append(button(supplierInfo.automatic ? '💎 Delivered by hand' : '💎 Mark delivered', supplierInfo.automatic ? 'ghost' : 'success', () => {
+          if (supplierInfo.automatic && !confirm('Mark as delivered? Only do this if you topped up this player yourself.')) throw new Error('Cancelled');
+          return call('delivered');
+        }));
+      }
       if (o.status === 'processing') {
         act.append(button('Delivery failed', 'danger', () => {
           const note = prompt('Note shown to the buyer:', 'Delivery failed — we will refund you.');
@@ -364,7 +376,7 @@
       if (!list || list.querySelector(`[data-id="${m.id}"]`)) return;
       // Shop's messages on the right, buyer's on the left.
       const row = document.createElement('div');
-      row.className = 'chat-msg ' + (m.from === 'admin' ? 'buyer' : m.from === 'buyer' ? 'admin' : 'system');
+      row.className = 'chat-msg ' + (m.from === 'admin' ? 'buyer' : m.from === 'buyer' ? 'admin' : 'system') + (m.adminOnly ? ' private' : '');
       row.dataset.id = m.id;
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
@@ -389,7 +401,7 @@
         bubble.append(t);
       }
       const time = document.createElement('time');
-      time.textContent = new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      time.textContent = (m.adminOnly ? '🔒 Only you can see this · ' : '') + new Date(m.at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
       bubble.append(time);
     }
 
@@ -455,8 +467,22 @@
     }
     window.addEventListener('hashchange', openFromHash);
 
+    async function loadSupplier() {
+      try {
+        const s = await api('/api/admin/supplier');
+        supplierInfo.automatic = s.automatic;
+        const pill = $('supplierPill');
+        if (!s.automatic) { pill.hidden = true; return; }
+        pill.hidden = false;
+        pill.className = 'supplier-pill' + (s.error || Number(s.balance) < 5 ? ' low' : '');
+        pill.textContent = s.error ? `⚠️ ${s.name}: ${s.error}` : `💰 ${s.name}: ${s.balance} ${s.currency}`;
+        pill.title = 'Your balance at the diamond supplier. Top it up before it runs out.';
+      } catch {}
+    }
+
     async function enter() {
       try {
+        await loadSupplier();
         await refresh();
         $('login').hidden = true; $('panel').hidden = false; $('logout').hidden = false;
         openFromHash();
@@ -477,6 +503,7 @@
     $('filter').addEventListener('change', () => loadOrders().catch((e) => alert(e.message)));
     $('refresh').addEventListener('click', () => refresh().catch((e) => alert(e.message)));
     setInterval(() => { if (token && !$('panel').hidden) refresh().catch(() => {}); }, 5000);
+    setInterval(() => { if (token && !$('panel').hidden) loadSupplier(); }, 60000);
     if (token) enter();
   })();
   </script>

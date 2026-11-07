@@ -1,0 +1,21 @@
+{
+  "_help": "Match each SOMA package id (server/catalog.js) to a FazerCards offer_id. Run `npm run fazer:offers` to list the real ids and prices. Leave \"\" for packages you deliver by hand.",
+  "categoryId": "mobile_legends",
+  "validateCategoryId": "",
+  "fields": { "player_id": "userId", "zone_id": "zoneId" },
+  "offers": {
+    "dm-11": "",
+    "dm-22": "",
+    "dm-56": "",
+    "dm-86": "",
+    "dm-172": "",
+    "dm-257": "",
+    "dm-344": "",
+    "dm-706": "",
+    "dm-2195": "",
+    "dm-3688": "",
+    "dm-5532": "",
+    "wdp": "",
+    "twilight": ""
+  }
+}

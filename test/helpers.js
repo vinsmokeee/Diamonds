@@ -10,7 +10,9 @@ async function start({ payment, supplier, notifier }) {
   const chats = new JsonStore(null);
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'diamonds-'));
   const receiptsDir = path.join(dataDir, 'receipts');
-  const server = createApp({ store, chats, payment, supplier, dataDir, notifier, rateLimits: false }).listen(0);
+  const app = createApp({ store, chats, payment, supplier, dataDir, notifier, rateLimits: false });
+  const server = app.listen(0);
+  server.app = app;
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const post = (p, body, headers = {}) =>

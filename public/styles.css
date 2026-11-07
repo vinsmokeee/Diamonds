@@ -207,7 +207,7 @@ body.has-chat { padding-bottom: 80px; }
 .chat-attach-preview button { position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: var(--err); color: #fff; cursor: pointer; font-size: 11px; }
 
 /* admin chat */
-.admin-tabs { margin: 20px 0 14px; }
+.admin-tabs { margin: 20px 0 14px; flex-wrap: wrap; }
 .count-badge { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--err); color: #fff; font-size: 11px; font-weight: 800; margin-left: 4px; }
 .admin-chat { display: grid; grid-template-columns: 300px 1fr; height: calc(100vh - 150px); min-height: 460px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--surface); }
 .chat-threads { border-right: 1px solid var(--border); overflow-y: auto; }
@@ -242,3 +242,9 @@ body.has-chat { padding-bottom: 80px; }
   .thread-back { display: block; }
 }
 .brand-soma { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 900; letter-spacing: .5px; }
+
+.supplier-pill { margin-left: auto; align-self: center; font-size: 12px; padding: 5px 10px; border-radius: 999px; border: 1px solid rgba(61,220,151,.4); color: var(--ok); white-space: nowrap; }
+.supplier-pill.low { border-color: rgba(255,107,122,.5); color: var(--err); }
+.supplier-pill:not([hidden]) + #alertsBtn { margin-left: 0 !important; }
+
+.chat-msg.private .bubble { border-color: rgba(255,200,90,.55); color: var(--gold); background: rgba(255,200,90,.06); }

@@ -7,6 +7,7 @@ const payments = {
 const suppliers = {
   manual: () => require('./supplier-manual'),
   mock: () => require('./supplier-mock'),
+  fazercards: () => require('./supplier-fazercards').fromEnv(),
 };
 
 function load(registry, name, kind) {
