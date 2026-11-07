@@ -319,7 +319,7 @@
         card.querySelector('.pc-drop-text').textContent = 'Tap to change';
       } catch { card.querySelector('.pc-err').textContent = 'Could not read that photo.'; }
     });
-    card.querySelector('.pc-cancel').addEventListener('click', (e) => {
+    card.querySelector('.pc-cancel')?.addEventListener('click', (e) => {
       e.preventDefault();
       pending.clear();
       hidePaymentCard();
@@ -361,6 +361,7 @@
       return true;
     } catch (e) {
       if (e.status === 404) pending.clear();
+      else if (!e.status) console.error('payment card', e); // a bug, not a network/API answer
       return false;
     }
   }
