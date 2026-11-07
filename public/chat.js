@@ -142,6 +142,11 @@
       const atBottom = body.scrollHeight - body.scrollTop - body.clientHeight < 60;
       welcome();
       c.messages.forEach(addMessage);
+      // New message from the shop/system may be a "please pay the rest" request.
+      if (c.messages.some((m) => m.from !== 'buyer') || !state.checkedLatest) {
+        state.checkedLatest = true;
+        checkLatestOrder(c.orderIds);
+      }
       if (c.messages.length && (atBottom || state.firstLoad)) scrollDown();
       state.firstLoad = false;
       showUnread(state.open ? 0 : c.unread);
@@ -252,7 +257,22 @@
 
   function trackPending(order) {
     const prev = pending.get();
-    pending.set({ id: order.id, amount: order.amount, item: order.item, chatId: order.chatId, leftAt: prev && prev.id === order.id ? prev.leftAt : null });
+    // Part already paid (shop asked for the rest): show the card right away, they know the drill.
+    const leftAt = order.amountReceived > 0 ? Date.now() : prev && prev.id === order.id ? prev.leftAt : null;
+    pending.set({ id: order.id, amount: order.amountDue ?? order.amount, item: order.item, chatId: order.chatId, leftAt });
+  }
+
+  // Shop asked for the remaining amount on the latest order: bring the "I have paid" card back.
+  async function checkLatestOrder(orderIds) {
+    const id = orderIds && orderIds[orderIds.length - 1];
+    if (!id || card) return;
+    try {
+      const o = await api(`/api/orders/${encodeURIComponent(id)}`);
+      if (o.status === 'pending_payment' && o.amountReceived > 0) {
+        trackPending({ ...o, chatId: state.chatId });
+        resumePending();
+      }
+    } catch {}
   }
 
   function markLeft() {
@@ -279,8 +299,11 @@
       <button class="btn block pc-paid" type="button">✅ I have paid</button>
       <div class="form-error pc-err"></div>
       <div class="pc-links"><a class="pc-qr" href="#">Not paid yet? Show the QR again</a> · <a class="pc-cancel" href="#">Cancel order</a></div>`;
-    card.querySelector('.pc-title').textContent = `💳 Did you pay ${money(p.amount)} for ${p.item}?`;
+    card.querySelector('.pc-title').textContent = p.partial
+      ? `💳 Did you pay the remaining ${money(p.amount)} for ${p.item}?`
+      : `💳 Did you pay ${money(p.amount)} for ${p.item}?`;
     card.querySelector('.pc-qr').href = `/pay.html?id=${encodeURIComponent(p.id)}`;
+    if (p.partial) card.querySelector('.pc-cancel').replaceWith(document.createTextNode('Questions? Message us below'));
     let shot = null;
     const fileIn = card.querySelector('input[type=file]');
     fileIn.addEventListener('change', async () => {
@@ -334,7 +357,7 @@
     try {
       const o = await api(`/api/orders/${encodeURIComponent(p.id)}`);
       if (o.status !== 'pending_payment') { pending.clear(); hidePaymentCard(); return false; }
-      showPaymentCard({ ...p, amount: o.amount, item: o.item, chatId: o.chatId || p.chatId });
+      showPaymentCard({ ...p, amount: o.amountDue ?? o.amount, item: o.item, chatId: o.chatId || p.chatId, partial: o.amountReceived > 0 });
       return true;
     } catch (e) {
       if (e.status === 404) pending.clear();

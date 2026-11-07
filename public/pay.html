@@ -16,7 +16,7 @@
   </header>
   <main class="wrap">
     <div class="card status-card" id="payCard" hidden>
-      <p style="color:var(--muted);margin:0">Pay exactly</p>
+      <p style="color:var(--muted);margin:0" id="payLabel">Pay exactly</p>
       <div class="amount-big" id="amount"></div>
       <p style="color:var(--muted);margin:0 0 16px" id="item"></p>
 
@@ -83,7 +83,11 @@
       return message('Payment already submitted', 'You can follow your order on the tracking page.', '/order.html?id=' + encodeURIComponent(o.id), 'Track order');
     }
 
-    const amt = window.formatMoney(o.amount, info.currencySymbol);
+    const due = o.amountDue ?? o.amount;
+    const amt = window.formatMoney(due, info.currencySymbol);
+    if (o.amountReceived) {
+      $('payLabel').textContent = `We received ${window.formatMoney(o.amountReceived)}. Please pay the remaining`;
+    }
     $('amount').textContent = amt;
     $('amount2').textContent = amt;
     $('item').textContent = `${o.item} → ${o.userId} (${o.zoneId})`;

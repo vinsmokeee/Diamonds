@@ -87,7 +87,9 @@
       $('oPlayer').textContent = (o.gameName || o.nickname ? `${o.gameName || o.nickname} · ` : '') + `${o.userId} (${o.zoneId})`;
       if (o.chatId) window.Chat.attach(o.chatId);
       $('oItem').textContent = o.item;
-      $('oAmount').textContent = window.formatMoney(o.amount) + (o.txnRef ? ` · ref ${o.txnRef}` : '');
+      $('oAmount').textContent = window.formatMoney(o.amount) +
+        (o.amountReceived && o.status === 'pending_payment' ? ` (received ${window.formatMoney(o.amountReceived)}, ${window.formatMoney(o.amountDue)} left to pay)` : '') +
+        (o.txnRef ? ` · ref ${o.txnRef}` : '');
       $('oCreated').textContent = new Date(o.createdAt).toLocaleString();
       if (o.status === 'pending_payment') {
         window.Chat.trackPending(o);

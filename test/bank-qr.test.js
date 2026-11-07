@@ -117,3 +117,28 @@ test('a receipt screenshot alone is enough (journal number optional), and the bu
   const other = await newOrder();
   assert.equal((await t.post(`/api/orders/${other.orderId}/payment-proof`, {})).status, 400);
 });
+
+test('underpayment: admin records what arrived, buyer is asked for the rest, then it completes', async () => {
+  const price = require('../server/catalog').getPackage('dm-706').price;
+  const { orderId } = await newOrder();
+  await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'UNDER-001', screenshot: PNG });
+
+  // invalid amounts are refused
+  assert.equal((await t.post(`/api/admin/orders/${orderId}/partial`, { received: 0 }, t.admin)).status, 400);
+  assert.equal((await t.post(`/api/admin/orders/${orderId}/partial`, { received: price }, t.admin)).status, 400);
+
+  assert.equal((await t.post(`/api/admin/orders/${orderId}/partial`, { received: 500 }, t.admin)).status, 200);
+  let pub = await (await fetch(`${t.base}/api/orders/${orderId}`)).json();
+  assert.equal(pub.status, 'pending_payment');
+  assert.equal(pub.amountReceived, 500);
+  assert.equal(pub.amountDue, price - 500);
+  const chatTexts = () => t.chats.get(t.store.get(orderId).chatId).messages.map((m) => m.text).join('\n');
+  assert.match(chatTexts(), new RegExp(`received Nu\\. 500 .*remaining Nu\\. ${price - 500}`));
+
+  // buyer pays the rest (a new journal number on the same order is fine)
+  assert.equal((await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'UNDER-002' })).status, 200);
+  assert.match(chatTexts(), new RegExp(`Amount: Nu\\. ${price - 500} \\(remaining of Nu\\. ${price.toLocaleString('en-IN')}\\)`));
+  assert.equal((await t.post(`/api/admin/orders/${orderId}/approve`, {}, t.admin)).status, 200);
+  assert.equal(t.store.get(orderId).status, 'processing');
+  assert.deepEqual(t.store.get(orderId).partialPayments.map((x) => x.txnRef), ['UNDER-001']);
+});

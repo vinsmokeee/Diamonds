@@ -39,6 +39,8 @@ function publicOrder(o) {
     status: o.status,
     item: o.item,
     amount: o.amount,
+    amountReceived: o.amountReceived || 0,
+    amountDue: amountDue(o),
     currency: o.currency,
     userId: o.userId,
     zoneId: o.zoneId,
@@ -50,6 +52,11 @@ function publicOrder(o) {
     updatedAt: o.updatedAt,
     note: ['failed', 'payment_failed'].includes(o.status) ? o.note : undefined,
   };
+}
+
+// What the buyer still has to pay (after any partial payments).
+function amountDue(o) {
+  return Math.max(0, o.amount - (o.amountReceived || 0));
 }
 
 function safeEqual(a, b) {
@@ -212,7 +219,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     if (updated.chatId) {
       chat.post(updated.chatId, {
         from: 'buyer',
-        text: `💳 I have paid for ${updated.item}\nAmount: ${money(updated.amount)}` + (txnRef ? `\nJournal no.: ${txnRef}` : ''),
+        text: `💳 I have paid for ${updated.item}\nAmount: ${money(amountDue(updated))}` + (updated.amountReceived ? ` (remaining of ${money(updated.amount)})` : '') + (txnRef ? `\nJournal no.: ${txnRef}` : ''),
         image: receiptFile ? `receipts/${receiptFile}` : null,
       });
       chat.post(updated.chatId, {
@@ -395,6 +402,26 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
       if (o) notify(o, `❌ Payment could not be verified${note ? `: ${note}` : '.'}`, 'buyer');
       return o;
     },
+    // Buyer paid less than the price: record what arrived and ask for the rest.
+    partial: (id, note, body) => {
+      const cur = store.get(id);
+      const received = Math.round(Number(body.received));
+      const due = amountDue(cur);
+      if (!Number.isFinite(received) || received <= 0 || received >= due) {
+        const e = new Error(`Enter the amount that arrived: more than 0 and less than ${money(due)}.`);
+        e.status = 400;
+        throw e;
+      }
+      const o = store.transition(id, 'awaiting_verification', 'pending_payment', {
+        amountReceived: (cur.amountReceived || 0) + received,
+        partialPayments: [...(cur.partialPayments || []), { received, txnRef: cur.txnRef || null, at: new Date().toISOString() }],
+        txnRef: null,
+      });
+      if (o) {
+        notify(o, `💰 We received ${money(received)} but the price is ${money(due)}. Please pay the remaining ${money(amountDue(o))} to the same QR and send the receipt here.`, 'buyer');
+      }
+      return o;
+    },
     delivered: (id) => markDelivered(id, 'processing') || markDelivered(id, 'failed'),
     fail: (id, note) => {
       const o = store.transition(id, 'processing', 'failed', { note: note || 'Delivery failed — we will refund you.' });
@@ -410,7 +437,13 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     if (!fn) return res.status(404).json({ error: 'Unknown action' });
     if (!store.get(req.params.id)) return res.status(404).json({ error: 'Order not found' });
     const note = String(req.body.note || '').slice(0, 300);
-    const o = await fn(req.params.id, note);
+    let o;
+    try {
+      o = await fn(req.params.id, note, req.body);
+    } catch (e) {
+      if (e.status === 400) return res.status(400).json({ error: e.message });
+      throw e;
+    }
     if (!o) return res.status(409).json({ error: `Can't ${req.params.action} an order in status "${store.get(req.params.id).status}".` });
     res.json(store.get(req.params.id));
   });
@@ -427,7 +460,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     chat.post(c.id, {
       from: 'system',
       audience: 'admin',
-      text: `⏳ Got your receipt for ${o.item} (${money(o.amount)}). We are checking your payment, and your diamonds will be sent automatically once it is confirmed.`,
+      text: `⏳ Got your receipt for ${o.item} (${money(amountDue(o))}). We are checking your payment, and your diamonds will be sent automatically once it is confirmed.`,
     });
     if (alertOn('payments')) alerts.paymentSubmitted(o, chat.imagePath(msg));
   }

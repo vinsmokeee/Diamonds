@@ -149,6 +149,13 @@
         line(meta, 'User ID', o.userId, true);
         line(meta, 'Zone ID', o.zoneId, true);
       }
+      const due = o.amount - (o.amountReceived || 0);
+      if (['pending_payment', 'awaiting_verification'].includes(o.status)) {
+        const exp = document.createElement('div');
+        exp.className = 'expected';
+        exp.textContent = `Expected in bank: ${window.formatMoney(due)}` + (o.amountReceived ? ` (already received ${window.formatMoney(o.amountReceived)} of ${window.formatMoney(o.amount)})` : '');
+        meta.append(exp);
+      }
       if (o.txnRef) line(meta, 'Journal no.', o.txnRef, true);
       if (!compact) line(meta, 'Order', o.id, true);
       line(meta, 'Created', new Date(o.createdAt).toLocaleString());
@@ -174,12 +181,20 @@
       const call = (action, note) => api(`/api/admin/orders/${encodeURIComponent(o.id)}/${action}`, { note });
       if (o.status === 'pending_payment') {
         act.append(button('✓ Paid (I see it in the bank)', 'ghost', () => {
-          if (!confirm('No receipt was sent for this order. Approve only if the money is in your bank account.')) throw new Error('Cancelled');
+          if (!confirm(`No receipt was sent for this order.\n\nDid ${window.formatMoney(due)} arrive in your bank account?`)) throw new Error('Cancelled');
           return call('approve');
         }));
       }
       if (o.status === 'awaiting_verification') {
-        act.append(button('✓ Payment received', 'success', () => call('approve')));
+        act.append(button('✓ Payment received', 'success', () => {
+          if (!confirm(`Check your bank app first.\n\nDid the full ${window.formatMoney(due)} arrive?\n\nIf less arrived, press Cancel and use "Paid less".`)) throw new Error('Cancelled');
+          return call('approve');
+        }));
+        act.append(button('➖ Paid less', 'ghost', () => {
+          const v = prompt(`How much arrived in your bank? (price: ${window.formatMoney(due)})`, '');
+          if (v === null) throw new Error('Cancelled');
+          return api(`/api/admin/orders/${encodeURIComponent(o.id)}/partial`, { received: Number(String(v).replace(/[^0-9.]/g, '')) });
+        }));
         act.append(button('✕ Reject', 'danger', () => {
           const note = prompt('Reason shown to the buyer:', 'Payment not found in our bank account.');
           if (note === null) throw new Error('Cancelled');
