@@ -32,23 +32,26 @@
           <dt>Order ID</dt><dd id="oId"></dd>
           <dt>Player</dt><dd id="oPlayer"></dd>
           <dt>Item</dt><dd id="oItem"></dd>
-          <dt>Paid</dt><dd id="oAmount"></dd>
+          <dt>Amount</dt><dd id="oAmount"></dd>
           <dt>Created</dt><dd id="oCreated"></dd>
         </dl>
       </div>
+      <a class="btn" id="payLink" hidden style="display:inline-block;text-decoration:none;margin-right:8px">Go to payment</a>
       <a class="btn ghost" href="/" style="display:inline-block;text-decoration:none">Top up again</a>
     </div>
   </main>
+  <script src="/money.js"></script>
   <script>
   (() => {
     const $ = (id) => document.getElementById(id);
     const id = new URLSearchParams(location.search).get('id');
     const STATES = {
-      pending_payment: ['wait', '…', 'Awaiting payment', 'Complete your payment to continue.'],
-      processing:      ['wait', '<span class="spin">⟳</span>', 'Delivering diamonds', 'Payment received. Sending to your account…'],
+      pending_payment: ['wait', '…', 'Awaiting payment', 'Scan the bank QR and submit your journal number to continue.'],
+      awaiting_verification: ['review', '⌛', 'Checking your payment', 'We received your journal number and are confirming it with the bank. This page updates by itself.'],
+      processing:      ['wait', '<span class="spin">⟳</span>', 'Payment confirmed', 'We are sending diamonds to your account now.'],
       completed:       ['ok', '✓', 'Delivered!', 'Diamonds have been sent. Restart the game if you don’t see them yet.'],
-      payment_failed:  ['err', '✕', 'Payment not completed', 'No money was taken. You can try again.'],
-      failed:          ['err', '!', 'Delivery problem', 'Payment received but delivery failed. Contact support with your order ID.'],
+      payment_failed:  ['err', '✕', 'Payment not verified', 'We could not find your payment. Contact us with your order ID and receipt.'],
+      failed:          ['err', '!', 'Delivery problem', 'Payment received but delivery failed. Contact us with your order ID.'],
     };
 
     if (!id) {
@@ -76,13 +79,17 @@
       $('icon').className = 'status-icon ' + cls;
       $('icon').innerHTML = icon;
       $('title').textContent = title;
-      $('subtitle').textContent = o.error && o.status === 'failed' ? o.error : sub;
+      $('subtitle').textContent = o.note || sub;
       $('oId').textContent = o.id;
-      $('oPlayer').textContent = `${o.nickname} · ${o.userId} (${o.zoneId})`;
+      $('oPlayer').textContent = (o.nickname ? `${o.nickname} · ` : '') + `${o.userId} (${o.zoneId})`;
       $('oItem').textContent = o.item;
-      $('oAmount').textContent = new Intl.NumberFormat(undefined, { style: 'currency', currency: o.currency }).format(o.amount / 100);
+      $('oAmount').textContent = window.formatMoney(o.amount) + (o.txnRef ? ` · ref ${o.txnRef}` : '');
       $('oCreated').textContent = new Date(o.createdAt).toLocaleString();
-      if (o.status === 'pending_payment' || o.status === 'processing') setTimeout(load, 3000);
+      if (o.status === 'pending_payment') {
+        $('payLink').hidden = false;
+        $('payLink').href = '/pay.html?id=' + encodeURIComponent(o.id);
+      }
+      if (['pending_payment', 'awaiting_verification', 'processing'].includes(o.status)) setTimeout(load, 10000);
     }
     load();
   })();

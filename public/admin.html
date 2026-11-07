@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Admin — Diamonds</title>
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="/"><img src="/logo.svg" alt="" width="28" height="28"> Diamonds <span style="color:var(--muted);font-weight:500;font-size:14px">admin</span></a>
+      <nav><a href="#" id="logout" hidden>Log out</a></nav>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="card status-card" id="login">
+      <h2>Admin login</h2>
+      <form id="loginForm" style="display:flex;gap:10px">
+        <input id="token" type="password" placeholder="Admin token" autocomplete="current-password" required>
+        <button class="btn" type="submit">Enter</button>
+      </form>
+      <div class="form-error" id="loginErr"></div>
+    </div>
+
+    <div id="panel" hidden>
+      <div class="admin-bar">
+        <h1>Orders</h1>
+        <select id="filter">
+          <option value="awaiting_verification">To verify</option>
+          <option value="processing">To deliver</option>
+          <option value="open">All open</option>
+          <option value="completed">Completed</option>
+          <option value="payment_failed">Rejected</option>
+          <option value="failed">Failed delivery</option>
+          <option value="">Everything</option>
+        </select>
+        <button class="btn ghost" id="refresh" type="button">Refresh</button>
+      </div>
+      <p class="hint" id="count"></p>
+      <div class="orders" id="orders"></div>
+    </div>
+  </main>
+
+  <script src="/money.js"></script>
+  <script>
+  (() => {
+    const $ = (id) => document.getElementById(id);
+    const LABEL = {
+      pending_payment: 'Unpaid', awaiting_verification: 'Verify payment', processing: 'Deliver',
+      completed: 'Delivered', payment_failed: 'Rejected', failed: 'Delivery failed',
+    };
+    let token = '';
+    try { token = sessionStorage.getItem('adminToken') || ''; } catch {}
+
+    async function api(path, body) {
+      const res = await fetch(path, {
+        method: body ? 'POST' : 'GET',
+        headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (res.status === 401) { logout(); throw new Error('Wrong token'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+      return data;
+    }
+
+    function logout() {
+      token = '';
+      try { sessionStorage.removeItem('adminToken'); } catch {}
+      $('panel').hidden = true; $('logout').hidden = true; $('login').hidden = false;
+    }
+
+    function line(parent, label, value, copy) {
+      const d = document.createElement('div');
+      d.append(label + ': ');
+      const b = document.createElement('b');
+      b.textContent = value;
+      if (copy) {
+        b.className = 'copyable'; b.title = 'Click to copy';
+        b.addEventListener('click', () => navigator.clipboard?.writeText(value));
+      }
+      d.append(b);
+      parent.append(d);
+    }
+
+    function button(text, cls, onClick) {
+      const b = document.createElement('button');
+      b.type = 'button'; b.className = 'btn ' + cls; b.textContent = text;
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        try { await onClick(); await load(); } catch (e) { alert(e.message); b.disabled = false; }
+      });
+      return b;
+    }
+
+    async function receipt(o, parent) {
+      const res = await fetch(`/api/admin/orders/${encodeURIComponent(o.id)}/receipt`, { headers: { Authorization: 'Bearer ' + token } });
+      if (!res.ok) return;
+      const url = URL.createObjectURL(await res.blob());
+      const img = document.createElement('img');
+      img.src = url; img.className = 'receipt-thumb'; img.alt = 'Payment screenshot';
+      img.addEventListener('click', () => window.open(url));
+      parent.append(img);
+    }
+
+    function render(list) {
+      const box = $('orders');
+      box.innerHTML = '';
+      $('count').textContent = `${list.length} order${list.length === 1 ? '' : 's'}`;
+      for (const o of list) {
+        const card = document.createElement('div');
+        card.className = 'card order-row';
+        const info = document.createElement('div');
+        const h = document.createElement('h3');
+        h.textContent = `${o.item} · ${window.formatMoney(o.amount)}`;
+        const pill = document.createElement('span');
+        pill.className = 'pill ' + o.status; pill.textContent = LABEL[o.status] || o.status;
+        h.append(pill);
+        info.append(h);
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        line(meta, 'User ID', o.userId, true);
+        line(meta, 'Zone ID', o.zoneId, true);
+        if (o.txnRef) line(meta, 'Journal no.', o.txnRef, true);
+        if (o.phone) line(meta, 'Phone', o.phone, true);
+        line(meta, 'Order', o.id, true);
+        line(meta, 'Created', new Date(o.createdAt).toLocaleString());
+        if (o.note) line(meta, 'Note', o.note);
+        info.append(meta);
+        if (o.receiptFile) receipt(o, info);
+        card.append(info);
+
+        const act = document.createElement('div');
+        act.className = 'actions';
+        const call = (action, note) => api(`/api/admin/orders/${encodeURIComponent(o.id)}/${action}`, { note });
+        if (o.status === 'awaiting_verification') {
+          act.append(button('✓ Payment received', 'success', () => call('approve')));
+          act.append(button('✕ Reject', 'danger', () => {
+            const note = prompt('Reason shown to the buyer:', 'Payment not found in our bank account.');
+            if (note === null) throw new Error('Cancelled');
+            return call('reject', note);
+          }));
+        }
+        if (o.status === 'processing' || o.status === 'failed') {
+          act.append(button('💎 Mark delivered', 'success', () => call('delivered')));
+        }
+        if (o.status === 'processing') {
+          act.append(button('Delivery failed', 'danger', () => {
+            const note = prompt('Note shown to the buyer:', 'Delivery failed — we will refund you.');
+            if (note === null) throw new Error('Cancelled');
+            return call('fail', note);
+          }));
+        }
+        card.append(act);
+        box.append(card);
+      }
+    }
+
+    async function load() {
+      const f = $('filter').value;
+      render(await api('/api/admin/orders' + (f ? '?status=' + f : '')));
+    }
+
+    async function enter() {
+      try {
+        await load();
+        $('login').hidden = true; $('panel').hidden = false; $('logout').hidden = false;
+      } catch (e) { $('loginErr').textContent = e.message; }
+    }
+
+    $('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      token = $('token').value;
+      try { sessionStorage.setItem('adminToken', token); } catch {}
+      enter();
+    });
+    $('logout').addEventListener('click', (e) => { e.preventDefault(); logout(); });
+    $('filter').addEventListener('change', () => load().catch((e) => alert(e.message)));
+    $('refresh').addEventListener('click', () => load().catch((e) => alert(e.message)));
+    setInterval(() => { if (token && !$('panel').hidden) load().catch(() => {}); }, 30000);
+    if (token) enter();
+  })();
+  </script>
+</body>
+</html>

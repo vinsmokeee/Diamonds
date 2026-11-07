@@ -1,44 +1,65 @@
-# Diamonds — MLBB Diamond Top-Up
+# Diamonds — MLBB Diamond Top-Up for Bhutan
 
-A storefront where players top up Mobile Legends: Bang Bang diamonds using their
-User ID and Zone ID.
+A storefront where players in Bhutan buy Mobile Legends: Bang Bang diamonds in
+**Ngultrum (Nu.)** and pay by scanning the shop's **bank QR code** in their banking app.
+No international card is needed.
 
 ## Run it
 
 ```bash
 npm install
-npm start            # http://localhost:3000
+cp .env.example .env     # edit your bank details + ADMIN_TOKEN
+ADMIN_TOKEN=pick-a-long-secret npm start     # http://localhost:3000
 npm test
 ```
 
-Copy `.env.example` to `.env` (or set the variables yourself) to change port, currency, secrets.
+The variables in `.env.example` are read from the environment. Load the file with
+`node --env-file=.env server/index.js`, or set them in your hosting dashboard.
 
-## How it works
+## How an order works
 
-1. **Player check.** The buyer enters a User ID and Zone ID, and the site looks up the in-game nickname so they can confirm it's the right account.
-2. **Package and payment.** The buyer picks a package and a payment method. The browser sends only a package **id**. Prices live on the server in `server/catalog.js`.
-3. **Order.** The server creates an order (`pending_payment`) and redirects the buyer to the payment provider.
-4. **Webhook.** The provider calls `POST /api/webhooks/payment`, and the signature is checked. The order moves `pending_payment → processing` exactly once, so a webhook retry can't double-deliver.
-5. **Delivery.** The supplier credits the diamonds, and the order becomes `completed`, or `failed` if delivery didn't work.
-6. **Tracking.** The buyer watches `/order.html?id=…`, which refreshes until the order is finished.
+| Step | Buyer | You (admin) |
+|---|---|---|
+| 1 | Enters User ID + Zone ID, confirms they're correct, picks a package | |
+| 2 | Sees your bank QR and the exact amount in Nu. Pays in their banking app (mBoB, BNB, T-Bank, BDBL, DK…) | |
+| 3 | Enters the **journal number** from the receipt and uploads a screenshot | Order appears in **/admin.html → To verify** |
+| 4 | | Check that the money arrived in your bank app, then press **Payment received** (or **Reject** with a reason) |
+| 5 | | Top up the player from your reseller account, then press **Mark delivered** |
+| 6 | Order page shows **Delivered!** | |
+
+The buyer's order page updates by itself as you move the order along.
+
+**Built-in protections**
+- Prices are set on the server in `server/catalog.js`, so the buyer can't change the amount.
+- A journal number can only be used on one order.
+- Only image screenshots up to 2 MB are accepted, and they're shrunk in the browser first.
+- Each order can only be approved once and delivered once.
+
+## Set up for your shop
+
+1. **Your QR code.** Save the QR image from your banking app as `public/payment-qr.png`, then set `PAY_QR_IMAGE=/payment-qr.png`.
+2. **Bank details.** Set `PAY_BANK_NAME`, `PAY_ACCOUNT_NAME`, and optionally `PAY_ACCOUNT_NUMBER`.
+3. **Prices.** Edit `server/catalog.js`. Prices are whole Nu. The current ones are placeholders, so set them from your supplier cost plus your margin.
+4. **Support contact.** Set `SUPPORT_CONTACT`, for example a WhatsApp number. It's shown to buyers on the site.
+5. **Admin password.** Set `ADMIN_TOKEN` to a long random string. The admin page is `/admin.html`.
+6. **Hosting.** Deploy with `NODE_ENV=production` on any Node host behind HTTPS, and keep the `data/` folder on persistent storage. That folder holds your orders and the receipt screenshots.
+
+## Project layout
 
 ```
-public/          storefront (index.html), order tracking, mock checkout
-server/app.js    routes, validation, order state machine
-server/catalog.js  packages & prices (edit these)
-server/store.js  JSON-file order storage
-server/providers/  payment + supplier adapters (mock ones included)
+public/            storefront, pay.html (QR), order.html (tracking), admin.html
+server/app.js      routes, validation, order state machine
+server/catalog.js  packages & prices
+server/store.js    JSON-file order storage (move to SQLite/Postgres as you grow)
+server/providers/  payment + supplier adapters
 ```
 
-## Going live: what you still need
+## Later: automation
 
-The site ships with **mock** payment and supplier adapters so you can build and test without spending money. Before you take real orders:
+- **Automatic delivery.** If your diamond supplier has an API, write `server/providers/supplier-<name>.js` with `lookupPlayer()` and `fulfill()`, and set `SUPPLIER_PROVIDER`. Orders then deliver as soon as you approve the payment, and buyers see their in-game nickname before paying.
+- **Automatic payment confirmation.** If your bank gives merchants a payment API or webhooks, add `payment-<name>.js`. There is already a webhook route in `server/app.js` for this.
 
-1. **A diamond supplier.** You need an authorised source that can credit diamonds to a User ID/Zone ID: an official reseller or partner program, or a wholesale top-up API. Write `server/providers/supplier-<name>.js` with `lookupPlayer()` and `fulfill()` (see `supplier-mock.js` for the contract). Register it in `providers/index.js` and set `SUPPLIER_PROVIDER`.
-2. **A payment gateway** for your market, for example Stripe, PayPal, Xendit, PayMongo or Razorpay. Write `payment-<name>.js` with `createCheckout()` and `parseWebhook()`, and set `PAYMENT_PROVIDER`. The server refuses to start in production with the mock provider.
-3. **A real database.** `store.js` is a single JSON file. Move to Postgres or SQLite before you get real traffic.
-4. **Set the secrets.** `WEBHOOK_SECRET` and `ADMIN_TOKEN`, then run with `NODE_ENV=production` behind HTTPS.
-5. **Set your prices** in `server/catalog.js`. They are in cents of `CURRENCY`.
-6. **Legal.** Add terms, a refund policy and a support contact. Don't use official game logos or art without permission.
+## Notes
 
-Admin order list: `GET /api/admin/orders` with header `Authorization: Bearer $ADMIN_TOKEN`.
+Not affiliated with Moonton. Don't use official game logos or art without permission.
+Add terms of service and a refund policy before you launch.

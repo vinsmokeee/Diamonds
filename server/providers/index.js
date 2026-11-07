@@ -1,7 +1,13 @@
 const config = require('../config');
 
-const payments = { mock: () => require('./payment-mock') };
-const suppliers = { mock: () => require('./supplier-mock') };
+const payments = {
+  'bank-qr': () => require('./payment-bank-qr'),
+  mock: () => require('./payment-mock'),
+};
+const suppliers = {
+  manual: () => require('./supplier-manual'),
+  mock: () => require('./supplier-mock'),
+};
 
 function load(registry, name, kind) {
   if (!registry[name]) throw new Error(`Unknown ${kind} provider "${name}". Add it in server/providers/index.js`);

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Diamonds — MLBB Diamond Top-Up</title>
-  <meta name="description" content="Top up Mobile Legends: Bang Bang diamonds instantly with your User ID and Zone ID.">
+  <title>Diamonds — MLBB Diamond Top-Up in Bhutan</title>
+  <meta name="description" content="Top up Mobile Legends: Bang Bang diamonds in Bhutan. Pay in Ngultrum with your bank QR.">
   <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/styles.css">
 </head>
@@ -19,10 +19,10 @@
   <main class="wrap">
     <section class="hero">
       <h1>Mobile Legends <span>Diamond Top-Up</span></h1>
-      <p>Enter your ID, pick a package, pay — diamonds land in your account in minutes.</p>
+      <p>Pay with any Bhutanese bank app. No international card needed.</p>
       <div class="badges">
-        <span class="badge">⚡ Instant delivery</span>
-        <span class="badge">🔒 Secure checkout</span>
+        <span class="badge">⚡ Fast delivery</span>
+        <span class="badge">🇧🇹 Pay in Nu. via bank QR</span>
         <span class="badge">🧾 Order tracking</span>
       </div>
     </section>
@@ -31,12 +31,13 @@
       <div>
         <section class="card" aria-labelledby="s1">
           <h2 class="step-title" id="s1"><span class="step-num">1</span> Enter your account</h2>
-          <div class="fields">
+          <div class="fields" id="fields">
             <div><label for="userId">User ID</label><input id="userId" type="text" inputmode="numeric" placeholder="e.g. 123456789" maxlength="12" autocomplete="off"></div>
             <div><label for="zoneId">Zone ID</label><input id="zoneId" type="text" inputmode="numeric" placeholder="e.g. 2001" maxlength="6" autocomplete="off"></div>
-            <button class="btn ghost" id="checkBtn" type="button">Check</button>
+            <button class="btn ghost" id="checkBtn" type="button" hidden>Check</button>
           </div>
           <div class="player" id="playerBox" role="status"></div>
+          <label class="confirm" id="confirmRow" hidden><input type="checkbox" id="confirmId"> I have double-checked my User ID and Zone ID. Diamonds sent to a wrong ID can’t be returned.</label>
           <p class="hint">Find these in-game: tap your avatar (top-left). Your ID looks like <code>123456789 (2001)</code> — the number in brackets is the Zone ID.</p>
         </section>
 
@@ -50,20 +51,25 @@
         </section>
 
         <section class="card" aria-labelledby="s3">
-          <h2 class="step-title" id="s3"><span class="step-num">3</span> Payment method</h2>
-          <div class="methods" id="methods"></div>
+          <h2 class="step-title" id="s3"><span class="step-num">3</span> WhatsApp / phone <small style="color:var(--muted);font-weight:400">(optional)</small></h2>
+          <input id="phone" type="text" inputmode="tel" placeholder="+975 17XXXXXX" autocomplete="tel" maxlength="20">
+          <p class="hint">So we can contact you if there’s a problem with your order.</p>
         </section>
 
         <section class="card" aria-labelledby="s4">
-          <h2 class="step-title" id="s4"><span class="step-num">4</span> Receipt email <small style="color:var(--muted);font-weight:400">(optional)</small></h2>
-          <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+          <h2 class="step-title" id="s4"><span class="step-num">4</span> Pay with bank QR</h2>
+          <div class="pay-note">
+            <div class="qr-icon" aria-hidden="true">▦</div>
+            <p>After you press <strong>Buy now</strong>, you’ll see our bank QR code. Scan it in your mobile banking app (mBoB, BNB mPay, T-Bank, BDBL, DK…), pay the exact amount, then enter the journal number from your receipt.</p>
+          </div>
         </section>
 
         <section class="card faq" id="faq">
           <h2 class="step-title">FAQ</h2>
-          <details><summary>How long does delivery take?</summary><p>Most orders are delivered within 1–5 minutes after payment. Use the order link to track status.</p></details>
-          <details><summary>I entered the wrong ID. What now?</summary><p>Always press “Check” and confirm the nickname before paying. Diamonds sent to a valid but wrong account can’t be reversed.</p></details>
-          <details><summary>Payment went through but no diamonds?</summary><p>Open your order page. If it shows “failed”, contact support with your order ID and we’ll retry or refund.</p></details>
+          <details><summary>How long does delivery take?</summary><p>Once we confirm your bank payment, diamonds are usually sent within 5–30 minutes during working hours. Use your order link to track it.</p></details>
+          <details><summary>Which banks can I pay with?</summary><p>Scan our QR code with your mobile banking app and pay the exact amount shown. Keep your receipt and enter the journal number on the payment page.</p></details>
+          <details><summary>I entered the wrong ID. What now?</summary><p>Contact us right away, before we deliver. Diamonds sent to a valid but wrong account can’t be reversed.</p></details>
+          <details><summary>Payment went through but no diamonds?</summary><p>Open your order page. If it shows a problem, contact us with your order ID and journal number and we’ll fix it or refund you.</p></details>
           <details><summary>Do you need my password?</summary><p>Never. We only need your User ID and Zone ID.</p></details>
         </section>
       </div>
@@ -74,7 +80,7 @@
           <dl>
             <dt>Player</dt><dd id="sumPlayer">—</dd>
             <dt>Item</dt><dd id="sumItem">—</dd>
-            <dt>Payment</dt><dd id="sumMethod">—</dd>
+            <dt>Payment</dt><dd>Bank QR</dd>
           </dl>
           <div class="total"><span>Total</span><span id="sumTotal">—</span></div>
           <button class="btn block" id="buyBtn" type="button" disabled>Buy now</button>
@@ -88,9 +94,11 @@
     <div class="wrap">
       Diamonds is an independent top-up service and is not affiliated with or endorsed by Moonton.
       Mobile Legends: Bang Bang is a trademark of its respective owner.
+      <span id="supportLine"></span>
     </div>
   </footer>
 
+  <script src="/money.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

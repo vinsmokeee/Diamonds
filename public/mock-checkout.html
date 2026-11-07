@@ -29,7 +29,7 @@
     const o = await (await fetch('/api/orders/' + encodeURIComponent(id))).json();
     document.getElementById('item').textContent = o.item;
     document.getElementById('player').textContent = `${o.nickname} · ${o.userId} (${o.zoneId})`;
-    document.getElementById('amount').textContent = new Intl.NumberFormat(undefined, { style: 'currency', currency: o.currency }).format(o.amount / 100);
+    document.getElementById('amount').textContent = new Intl.NumberFormat(undefined, { style: 'currency', currency: o.currency }).format(o.amount);
   })();
   </script>
 </body>
