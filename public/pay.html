@@ -31,14 +31,14 @@
       <ol class="steps">
         <li>Open your mobile banking app and scan the QR (or save it and scan from gallery).</li>
         <li><strong>Type the amount yourself:</strong> <strong id="amount2"></strong>, exactly. If the app has a remarks field, write your Order ID.</li>
-        <li>Enter the <strong>journal / reference number</strong> from your receipt below and attach a screenshot. It also goes to our chat so we can check it quickly.</li>
+        <li>Come back here and tap <strong>I have paid</strong> with a screenshot of your receipt. Your diamonds are sent to your game account as soon as we confirm the payment.</li>
       </ol>
 
       <form id="proofForm" style="text-align:left">
-        <label for="txnRef">Journal / reference number</label>
-        <input id="txnRef" type="text" placeholder="e.g. 123456789" maxlength="40" autocomplete="off" required>
+        <label for="txnRef">Journal / reference number <span style="color:var(--muted)">(optional if you attach a screenshot)</span></label>
+        <input id="txnRef" type="text" placeholder="e.g. 123456789" maxlength="40" autocomplete="off">
         <div style="height:12px"></div>
-        <label>Payment screenshot <span style="color:var(--muted)">(recommended)</span></label>
+        <label>Payment screenshot</label>
         <label class="file-drop" for="shot" id="drop">
           <span id="dropText">Tap to choose your receipt screenshot</span>
           <input id="shot" type="file" accept="image/*" hidden>
@@ -95,6 +95,10 @@
     $('orderId').textContent = o.id;
     if (info.support) $('support').textContent = `Also: ${info.support}`;
     window.Chat.attach(o.chatId);
+    // Remember this unpaid order: when the buyer returns from their bank app
+    // (or reopens the site), the chat opens with an "I have paid" card.
+    window.Chat.trackPending(o);
+    window.onPaymentSubmitted = (id) => setTimeout(() => { location.href = '/order.html?id=' + encodeURIComponent(id); }, 1200);
     $('chatBtn').addEventListener('click', () => window.Chat.open());
     $('payCard').hidden = false;
 
@@ -132,6 +136,7 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || 'Could not submit. Try again.');
+        window.Chat.clearPending();
         location.href = '/order.html?id=' + encodeURIComponent(o.id);
       } catch (err) {
         $('err').textContent = err.message;

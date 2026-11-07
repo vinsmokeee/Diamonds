@@ -90,6 +90,7 @@
       $('oAmount').textContent = window.formatMoney(o.amount) + (o.txnRef ? ` · ref ${o.txnRef}` : '');
       $('oCreated').textContent = new Date(o.createdAt).toLocaleString();
       if (o.status === 'pending_payment') {
+        window.Chat.trackPending(o);
         $('payLink').hidden = false;
         $('payLink').href = '/pay.html?id=' + encodeURIComponent(o.id);
       }

@@ -102,3 +102,18 @@ test('admin endpoints require the token', async () => {
   assert.equal((await t.post(`/api/admin/orders/${orderId}/approve`, {}, { Authorization: 'Bearer wrong' })).status, 401);
   assert.equal((await fetch(t.base + '/api/admin/orders?status=open', { headers: t.admin })).status, 200);
 });
+
+test('a receipt screenshot alone is enough (journal number optional), and the buyer is told we are checking', async () => {
+  const { orderId } = await newOrder();
+  const r = await t.post(`/api/orders/${orderId}/payment-proof`, { screenshot: PNG });
+  assert.equal(r.status, 200);
+  const o = t.store.get(orderId);
+  assert.equal(o.status, 'awaiting_verification');
+  assert.equal(o.txnRef, null);
+  const texts = t.chats.get(o.chatId).messages.map((m) => m.text);
+  assert.ok(texts.some((x) => /I have paid for 706 Diamonds/.test(x) && !/Journal/.test(x)));
+  assert.ok(texts.some((x) => /checking your payment/.test(x)));
+  // nothing at all is still refused
+  const other = await newOrder();
+  assert.equal((await t.post(`/api/orders/${other.orderId}/payment-proof`, {})).status, 400);
+});

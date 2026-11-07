@@ -236,6 +236,117 @@
     compose.classList.remove('sending');
   });
 
+  // ---- "I have paid" card -------------------------------------------------------
+  // Remembers an unpaid order. When the buyer comes back from their banking app
+  // (or reopens the site later), the chat opens with a one-tap "I have paid" card.
+  const PENDING_KEY = 'somaPendingOrder';
+  const pending = {
+    get: () => { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); } catch { return null; } },
+    set: (v) => { try { localStorage.setItem(PENDING_KEY, JSON.stringify(v)); } catch {} },
+    clear: () => { try { localStorage.removeItem(PENDING_KEY); } catch {} },
+  };
+  const money = (n) => (window.formatMoney ? window.formatMoney(n) : `Nu. ${n}`);
+  let card = null;
+
+  function trackPending(order) {
+    const prev = pending.get();
+    pending.set({ id: order.id, amount: order.amount, item: order.item, chatId: order.chatId, leftAt: prev && prev.id === order.id ? prev.leftAt : null });
+  }
+
+  function markLeft() {
+    const p = pending.get();
+    if (p && !p.leftAt) pending.set({ ...p, leftAt: Date.now() });
+  }
+
+  function hidePaymentCard() {
+    if (card) card.remove();
+    card = null;
+  }
+
+  function showPaymentCard(p) {
+    if (p.chatId) attach(p.chatId);
+    setOpen(true);
+    if (card) return;
+    card = document.createElement('div');
+    card.className = 'chat-paycard';
+    card.innerHTML = `
+      <strong class="pc-title"></strong>
+      <p class="pc-sub">Send us your receipt and we will send your diamonds to your game account.</p>
+      <label class="file-drop pc-drop"><span class="pc-drop-text">📷 Attach receipt screenshot</span><input type="file" accept="image/*" hidden></label>
+      <input class="pc-ref" type="text" maxlength="40" placeholder="Journal no. (optional)" autocomplete="off">
+      <button class="btn block pc-paid" type="button">✅ I have paid</button>
+      <div class="form-error pc-err"></div>
+      <div class="pc-links"><a class="pc-qr" href="#">Not paid yet? Show the QR again</a> · <a class="pc-cancel" href="#">Cancel order</a></div>`;
+    card.querySelector('.pc-title').textContent = `💳 Did you pay ${money(p.amount)} for ${p.item}?`;
+    card.querySelector('.pc-qr').href = `/pay.html?id=${encodeURIComponent(p.id)}`;
+    let shot = null;
+    const fileIn = card.querySelector('input[type=file]');
+    fileIn.addEventListener('change', async () => {
+      const f = fileIn.files[0];
+      if (!f) return;
+      try {
+        shot = await window.compressImage(f);
+        const drop = card.querySelector('.pc-drop');
+        drop.querySelector('img')?.remove();
+        const img = new Image();
+        img.src = shot; img.alt = 'Receipt';
+        drop.prepend(img);
+        card.querySelector('.pc-drop-text').textContent = 'Tap to change';
+      } catch { card.querySelector('.pc-err').textContent = 'Could not read that photo.'; }
+    });
+    card.querySelector('.pc-cancel').addEventListener('click', (e) => {
+      e.preventDefault();
+      pending.clear();
+      hidePaymentCard();
+    });
+    card.querySelector('.pc-paid').addEventListener('click', async () => {
+      const btn = card.querySelector('.pc-paid');
+      const err = card.querySelector('.pc-err');
+      const txnRef = card.querySelector('.pc-ref').value.trim();
+      err.textContent = '';
+      if (!shot && !txnRef) { err.textContent = 'Please attach a screenshot of your payment receipt.'; return; }
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      try {
+        await api(`/api/orders/${encodeURIComponent(p.id)}/payment-proof`, { txnRef, screenshot: shot });
+        pending.clear();
+        hidePaymentCard();
+        await poll();
+        scrollDown();
+        if (window.onPaymentSubmitted) window.onPaymentSubmitted(p.id);
+      } catch (ex) {
+        err.textContent = ex.message;
+        btn.disabled = false;
+        btn.textContent = '✅ I have paid';
+        if (ex.status === 409) { pending.clear(); setTimeout(hidePaymentCard, 2500); }
+      }
+    });
+    panel.insertBefore(card, compose);
+  }
+
+  // Ask the server whether the remembered order still needs payment; if so, show the card.
+  async function resumePending({ force = false } = {}) {
+    const p = pending.get();
+    if (!p || (!p.leftAt && !force)) return false;
+    if (Date.now() - (p.leftAt || Date.now()) > 3 * 24 * 3600 * 1000) { pending.clear(); return false; }
+    try {
+      const o = await api(`/api/orders/${encodeURIComponent(p.id)}`);
+      if (o.status !== 'pending_payment') { pending.clear(); return false; }
+      showPaymentCard({ ...p, amount: o.amount, item: o.item, chatId: o.chatId || p.chatId });
+      return true;
+    } catch (e) {
+      if (e.status === 404) pending.clear();
+      return false;
+    }
+  }
+
+  // Leaving the page (switching to the bank app, or closing the tab) marks the order as "went to pay".
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) markLeft();
+    else resumePending();
+  });
+  window.addEventListener('pagehide', markLeft);
+
   // ---- Public API ---------------------------------------------------------------
   function attach(chatId) {
     if (!chatId) return;
@@ -249,7 +360,12 @@
     attach,
     open: () => setOpen(true),
     id: () => state.chatId,
+    trackPending,
+    clearPending: () => { pending.clear(); hidePaymentCard(); },
+    askForPayment: () => resumePending({ force: true }),
   };
 
   if (state.chatId) poll().then(schedule);
+  // Reopened the site after going to pay: jump straight to the "I have paid" card.
+  resumePending();
 })();

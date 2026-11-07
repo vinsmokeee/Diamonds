@@ -185,10 +185,16 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     if (!o) return res.status(404).json({ error: 'Order not found' });
     if (o.status !== 'pending_payment') return res.status(409).json({ error: 'Payment was already submitted for this order.' });
 
-    const txnRef = String(req.body.txnRef || '').trim().toUpperCase();
-    if (!TXN_REF.test(txnRef)) return res.status(400).json({ error: 'Enter the journal / reference number from your bank receipt.' });
-    const dupe = store.list().find((x) => x.txnRef === txnRef && x.id !== o.id && x.status !== 'payment_failed');
-    if (dupe) return res.status(409).json({ error: 'This reference number was already used for another order.' });
+    // Proof = the receipt screenshot, the journal number, or both (at least one).
+    const txnRef = String(req.body.txnRef || '').trim().toUpperCase() || null;
+    if (!txnRef && !req.body.screenshot) {
+      return res.status(400).json({ error: 'Attach a screenshot of your payment receipt (or enter the journal number).' });
+    }
+    if (txnRef && !TXN_REF.test(txnRef)) return res.status(400).json({ error: 'That journal / reference number does not look right.' });
+    if (txnRef) {
+      const dupe = store.list().find((x) => x.txnRef === txnRef && x.id !== o.id && x.status !== 'payment_failed');
+      if (dupe) return res.status(409).json({ error: 'This reference number was already used for another order.' });
+    }
 
     let receiptFile = null;
     if (req.body.screenshot && receiptsDir) {
@@ -206,8 +212,12 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     if (updated.chatId) {
       chat.post(updated.chatId, {
         from: 'buyer',
-        text: `💳 Payment submitted for ${updated.item}\nAmount: ${money(updated.amount)}\nJournal no.: ${txnRef}`,
+        text: `💳 I have paid for ${updated.item}\nAmount: ${money(updated.amount)}` + (txnRef ? `\nJournal no.: ${txnRef}` : ''),
         image: receiptFile ? `receipts/${receiptFile}` : null,
+      });
+      chat.post(updated.chatId, {
+        from: 'system',
+        text: '⏳ Thanks! We are checking your payment. Your diamonds will be sent to your game account automatically once it is confirmed.',
       });
     }
     if (alertOn('payments')) alerts.paymentSubmitted(updated, receiptFile ? path.join(receiptsDir, receiptFile) : null);

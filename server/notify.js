@@ -46,7 +46,7 @@ function createNotifier({ token, chatId, baseUrl, money, fetchImpl = globalThis.
         text: [
           '💳 <b>New payment to verify</b>',
           `Amount: <b>${esc(money(order.amount))}</b>`,
-          `Journal no.: <code>${esc(order.txnRef)}</code>`,
+          order.txnRef ? `Journal no.: <code>${esc(order.txnRef)}</code>` : 'Journal no.: (see screenshot)',
           `Item: ${esc(order.item)}`,
           `Player: ${player(order)}`,
           '',
