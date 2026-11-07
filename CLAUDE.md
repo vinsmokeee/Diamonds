@@ -25,4 +25,10 @@ Mobile Legends: Bang Bang diamond top-up website for the Bhutanese gaming commun
 
 ## Future plans the owner mentioned
 
-- More projects (for example a game) under **one domain**, using subdomains: `diamonds.<domain>`, `play.<domain>`, and a hub page at the root. Each project stays a separate repo and Render service, with a shared menu and the SOMA look.
+- **Several SOMA projects:** this top-up shop, games, an SMM panel and more. Each is built and perfected as its own repo and Render service.
+- **One website for all of them.** When ready, everything goes under **one domain**:
+  - A **hub** page at the root, with one card per service.
+  - Each project on a subdomain: `diamonds.<domain>`, `play.<domain>`, `smm.<domain>`.
+  - Shared SOMA look and menu across all of them.
+  - Possibly a shared login and wallet later.
+- **SMM panel:** remind the owner that selling followers, likes or views breaks the major platforms' terms. Discuss safer services and clear terms before building.
