@@ -21,6 +21,9 @@ const config = {
   },
   support: process.env.SUPPORT_CONTACT || '',
 
+  // Read journal numbers / amounts from receipt screenshots (set RECEIPT_OCR=off to disable).
+  receiptOcr: process.env.RECEIPT_OCR !== 'off',
+
   // Profit protection: cost in Nu. = supplier USD price x usdToLocal.
   pricing: {
     usdToLocal: Number(process.env.USD_TO_NU) || 97,

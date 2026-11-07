@@ -1,6 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { start } = require('./helpers');
+const { start, freshPng } = require('./helpers');
 const payment = require('../server/providers/payment-bank-qr');
 const supplier = require('../server/providers/supplier-manual');
 
@@ -18,7 +18,7 @@ test('buyer starts a chat, sends text + photo, admin sees it and replies', async
   assert.ok(c.id.length >= 20);
 
   assert.equal((await t.post(`/api/chats/${c.id}/messages`, { text: 'Hi, I paid' })).status, 201);
-  const photo = await json(await t.post(`/api/chats/${c.id}/messages`, { image: PNG }));
+  const photo = await json(await t.post(`/api/chats/${c.id}/messages`, { image: freshPng() }));
   assert.match(photo.image, new RegExp(`^/api/chats/${c.id}/images/\\d+$`));
 
   // buyer can load their own photo
@@ -88,14 +88,14 @@ test('a photo sent in the chat while an order is unpaid counts as the payment re
   const { orderId, chatId } = await json(await t.post('/api/orders', { ...me, userId: '44443333', packageId: 'dm-86' }));
   await t.post(`/api/chats/${chatId}/messages`, { text: 'paid!' }); // text alone changes nothing
   assert.equal(t.store.get(orderId).status, 'pending_payment');
-  await t.post(`/api/chats/${chatId}/messages`, { image: PNG });
+  await t.post(`/api/chats/${chatId}/messages`, { image: freshPng() });
   const o = t.store.get(orderId);
   assert.equal(o.status, 'awaiting_verification');
   assert.ok(o.receiptChatMessageId);
   const texts = t.chats.get(chatId).messages.map((m) => m.text);
   assert.ok(texts.some((x) => /Got your receipt for 86 Diamonds/.test(x)));
   // a second photo does not change anything further
-  await t.post(`/api/chats/${chatId}/messages`, { image: PNG });
+  await t.post(`/api/chats/${chatId}/messages`, { image: freshPng() });
   assert.equal(t.store.get(orderId).status, 'awaiting_verification');
 });
 

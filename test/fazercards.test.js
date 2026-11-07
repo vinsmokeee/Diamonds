@@ -4,7 +4,7 @@ const { test, before, after, beforeEach } = require('node:test');
 const assert = require('node:assert');
 const http = require('http');
 const crypto = require('crypto');
-const { start } = require('./helpers');
+const { start, freshPng } = require('./helpers');
 const payment = require('../server/providers/payment-bank-qr');
 const { createFazerCards } = require('../server/providers/supplier-fazercards');
 
@@ -86,7 +86,7 @@ beforeEach(resetFake);
 
 async function paidOrder(packageId = 'dm-706') {
   const { orderId, chatId } = await (await t.post('/api/orders', { gameName: 'Karma', userId: '123456789', zoneId: '2001', packageId })).json();
-  await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: `JN-${crypto.randomBytes(5).toString('hex')}`, screenshot: PNG });
+  await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: `JN-${crypto.randomBytes(5).toString('hex')}`, screenshot: freshPng() });
   return { orderId, chatId };
 }
 const approve = (id) => t.post(`/api/admin/orders/${id}/approve`, {}, t.admin);

@@ -156,7 +156,11 @@
         exp.textContent = `Expected in bank: ${window.formatMoney(due)}` + (o.amountReceived ? ` (already received ${window.formatMoney(o.amountReceived)} of ${window.formatMoney(o.amount)})` : '');
         meta.append(exp);
       }
-      if (o.txnRef) line(meta, 'Journal no.', o.txnRef, true);
+      if (o.txnRef) line(meta, o.txnRef === o.ocrJournalNo ? 'Journal no. (read from screenshot)' : 'Journal no.', o.txnRef, true);
+      else if (['awaiting_verification', 'processing'].includes(o.status)) line(meta, 'Journal no.', '— not found, check the screenshot');
+      if (o.receiptAmount !== null && o.receiptAmount !== undefined && ['awaiting_verification', 'pending_payment'].includes(o.status)) {
+        line(meta, o.receiptAmount < due ? '⚠️ Screenshot shows' : 'Screenshot shows', window.formatMoney(o.receiptAmount));
+      }
       if (!compact) line(meta, 'Order', o.id, true);
       line(meta, 'Created', new Date(o.createdAt).toLocaleString());
       if (o.deliveryError) line(meta, '⚠️ Delivery error', o.deliveryError);
@@ -179,6 +183,13 @@
       const act = document.createElement('div');
       act.className = 'actions';
       const call = (action, note) => api(`/api/admin/orders/${encodeURIComponent(o.id)}/${action}`, { note });
+      if (['pending_payment', 'awaiting_verification', 'processing', 'failed'].includes(o.status)) {
+        act.append(button(o.txnRef ? '✏️ Journal no.' : '✏️ Set journal no.', 'ghost', () => {
+          const v = prompt('Journal / reference number from the bank receipt:', o.txnRef || '');
+          if (v === null) throw new Error('Cancelled');
+          return api(`/api/admin/orders/${encodeURIComponent(o.id)}/journal`, { txnRef: v });
+        }));
+      }
       if (o.status === 'pending_payment') {
         act.append(button('✓ Paid (I see it in the bank)', 'ghost', () => {
           if (!confirm(`No receipt was sent for this order.\n\nDid ${window.formatMoney(due)} arrive in your bank account?`)) throw new Error('Cancelled');

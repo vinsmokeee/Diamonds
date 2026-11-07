@@ -15,6 +15,8 @@
     "node": ">=20"
   },
   "dependencies": {
-    "express": "^4.21.2"
+    "@tesseract.js-data/eng": "1.0.0",
+    "express": "^4.21.2",
+    "tesseract.js": "5.1.1"
   }
 }

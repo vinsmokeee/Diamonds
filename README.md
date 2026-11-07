@@ -107,6 +107,20 @@ When this is set up, pressing **✓ Payment received** tells FazerCards to send 
 
 **Before going live**, test one small package on a real Bhutanese account. FazerCards funds balances in crypto (USDT and similar), so check that you can pay them from Bhutan.
 
+## Receipts: a journal number can only be used once
+
+Every receipt is checked, whether the buyer uses the payment form, the "I have paid" card, or just sends a photo in the chat:
+- **Journal number read automatically.** The site reads the journal or reference number and the amount from the screenshot. This runs on your own server and takes about a second. It recognises labels like *Journal No*, *Jrnl No*, *Reference ID*, *Txn ID* and *RRN*.
+- **No reuse.** A journal number that was already used on any order is refused, whether it was typed or read from a screenshot. So is the exact same screenshot file. The buyer is told: "This receipt was already used. Please send the receipt for this payment."
+- **Private warnings to you:**
+  - No journal number could be read.
+  - The amount on the screenshot is lower than the price.
+  - The typed number doesn't match the screenshot.
+- **Fixing it by hand:** use **✏️ Set journal no.** to add or correct a number. Duplicates are refused there too, and approving checks again.
+
+Your bank app is still the final check. A screenshot can be edited; the money in your account can't.
+Set `RECEIPT_OCR=off` to turn off screenshot reading. Typed numbers and identical screenshots are still checked.
+
 ## Profit protection
 
 Prices in `server/catalog.js` are set for about **20% profit** over FazerCards' cost at **Nu. 97 per USD**.

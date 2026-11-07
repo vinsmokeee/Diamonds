@@ -1,6 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { start } = require('./helpers');
+const { start, freshPng } = require('./helpers');
 const { createNotifier } = require('../server/notify');
 const payment = require('../server/providers/payment-bank-qr');
 const supplier = require('../server/providers/supplier-manual');
@@ -21,7 +21,7 @@ after(() => t.server.close());
 
 test('alerts the owner when a buyer submits payment, with the screenshot', async () => {
   const { orderId } = await (await t.post('/api/orders', { gameName: 'Soma', userId: '12345678', zoneId: '2001', packageId: 'dm-706' })).json();
-  await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'JN-ALERT-1', screenshot: PNG });
+  await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'JN-ALERT-1', screenshot: freshPng() });
   const c = calls.find((x) => x[0] === 'payment');
   assert.ok(c, 'payment alert sent');
   assert.equal(c[1].txnRef, 'JN-ALERT-1');

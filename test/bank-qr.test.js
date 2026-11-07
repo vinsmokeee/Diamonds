@@ -3,7 +3,7 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const { start } = require('./helpers');
+const { start, freshPng } = require('./helpers');
 const payment = require('../server/providers/payment-bank-qr');
 const supplier = require('../server/providers/supplier-manual');
 
@@ -34,7 +34,7 @@ test('checkout goes to the QR payment page', async () => {
 
 test('full flow: submit proof -> admin approves -> admin marks delivered', async () => {
   const { orderId } = await newOrder();
-  const r = await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'jn123456789', screenshot: PNG });
+  const r = await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'jn123456789', screenshot: freshPng() });
   assert.equal(r.status, 200);
   const pub = await r.json();
   assert.equal(pub.status, 'awaiting_verification');
@@ -105,7 +105,7 @@ test('admin endpoints require the token', async () => {
 
 test('a receipt screenshot alone is enough (journal number optional), and the buyer is told we are checking', async () => {
   const { orderId } = await newOrder();
-  const r = await t.post(`/api/orders/${orderId}/payment-proof`, { screenshot: PNG });
+  const r = await t.post(`/api/orders/${orderId}/payment-proof`, { screenshot: freshPng() });
   assert.equal(r.status, 200);
   const o = t.store.get(orderId);
   assert.equal(o.status, 'awaiting_verification');
@@ -121,7 +121,7 @@ test('a receipt screenshot alone is enough (journal number optional), and the bu
 test('underpayment: admin records what arrived, buyer is asked for the rest, then it completes', async () => {
   const price = require('../server/catalog').getPackage('dm-706').price;
   const { orderId } = await newOrder();
-  await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'UNDER-001', screenshot: PNG });
+  await t.post(`/api/orders/${orderId}/payment-proof`, { txnRef: 'UNDER-001', screenshot: freshPng() });
 
   // invalid amounts are refused
   assert.equal((await t.post(`/api/admin/orders/${orderId}/partial`, { received: 0 }, t.admin)).status, 400);

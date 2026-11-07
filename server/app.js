@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const catalog = require('./catalog');
@@ -7,6 +8,7 @@ const { saveDataUrlImage } = require('./images');
 const { createChatService, mountChatRoutes, cleanName } = require('./chat');
 const { createNotifier } = require('./notify');
 const { createPriceGuard } = require('./pricing');
+const { createReceiptReader, fileHash } = require('./receipts');
 
 const USER_ID = /^\d{5,12}$/;
 const ZONE_ID = /^\d{1,6}$/;
@@ -65,7 +67,7 @@ function safeEqual(a, b) {
   return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true, notifier = null, priceGuard = null }) {
+function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits = true, notifier = null, priceGuard = null, receiptReader = null }) {
   const receiptsDir = dataDir ? path.join(dataDir, 'receipts') : null;
   const chat = createChatService({ chats, dataDir });
   const limiter = (opts) => rateLimit({ ...opts, enabled: rateLimits });
@@ -73,6 +75,61 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
   const alerts = notifier || createNotifier({ ...config.telegram, baseUrl: config.baseUrl, money });
   const alertOn = (event) => (config.telegram.events || []).includes(event);
   const prices = priceGuard || createPriceGuard({ supplier, ...config.pricing });
+  const receipts = receiptReader || createReceiptReader({ enabled: config.receiptOcr });
+
+  // ---- Receipts: a journal number / screenshot can only ever pay for one order ----
+  const uniq = (arr) => [...new Set(arr.filter(Boolean))];
+  function journalUsedBy(ref, exceptId) {
+    if (!ref) return null;
+    return store.list().find((x) => x.id !== exceptId && (x.txnRef === ref || (x.journalHistory || []).includes(ref))) || null;
+  }
+  function screenshotUsedBy(hash, exceptId) {
+    if (!hash) return null;
+    return store.list().find((x) => x.id !== exceptId && (x.receiptHashes || []).includes(hash)) || null;
+  }
+
+  /**
+   * Check a receipt before accepting it. Reads the journal number and amount from the
+   * screenshot. -> { error } or { patch, adminNotes }
+   */
+  async function checkReceipt(order, { typedRef = null, imageFile = null }) {
+    const hash = imageFile ? fileHash(imageFile) : null;
+    const resent = order.amountReceived > 0; // after "Paid less", the old receipt is not proof of the rest
+    if (screenshotUsedBy(hash, order.id) || (resent && hash && (order.receiptHashes || []).includes(hash))) {
+      return { error: 'This screenshot was already used. Please send the receipt for this payment.' };
+    }
+    if (typedRef && (journalUsedBy(typedRef, order.id) || (resent && (order.journalHistory || []).includes(typedRef)))) {
+      return { error: `Journal no. ${typedRef} was already used. Please send the receipt for this payment.` };
+    }
+    const ocr = imageFile ? await receipts.read(imageFile) : null;
+    const readRef = ocr && ocr.journalNo;
+    if (readRef && (journalUsedBy(readRef, order.id) || (resent && (order.journalHistory || []).includes(readRef)))) {
+      return { error: `This receipt (journal no. ${readRef}) was already used. Please send the receipt for this payment.` };
+    }
+
+    const due = amountDue(order);
+    const adminNotes = [];
+    if (imageFile && receipts.enabled && !ocr) adminNotes.push('🔍 Could not read the screenshot automatically. Check the journal number by eye.');
+    else if (imageFile && ocr && !readRef) adminNotes.push('🔍 No journal number found on the screenshot. Check it by eye, then use "Set journal no.".');
+    if (typedRef && readRef && typedRef !== readRef) adminNotes.push(`⚠️ Buyer typed journal no. ${typedRef} but the screenshot says ${readRef}.`);
+    if (ocr && ocr.amount !== null && ocr.amount < due) adminNotes.push(`⚠️ Screenshot shows ${money(ocr.amount)} but ${money(due)} is due. Check your bank before approving.`);
+
+    const txnRef = typedRef || readRef || null;
+    return {
+      adminNotes,
+      patch: {
+        txnRef,
+        ocrJournalNo: readRef || null,
+        receiptAmount: ocr ? ocr.amount : null,
+        receiptHashes: uniq([...(order.receiptHashes || []), hash]),
+        journalHistory: uniq([...(order.journalHistory || []), txnRef, readRef]),
+      },
+    };
+  }
+
+  function postAdminNotes(chatId, notes) {
+    for (const text of notes) chat.post(chatId, { from: 'system', audience: 'admin', adminOnly: true, text });
+  }
   const notify = (order, text, audience) => order && order.chatId && chat.post(order.chatId, { from: 'system', text, audience });
   const app = express();
   app.locals.priceGuard = prices;
@@ -186,7 +243,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
 
   // ---- Manual payment proof (bank QR) --------------------------------------------
   const proofLimiter = limiter({ windowMs: 60_000, max: 6 });
-  app.post('/api/orders/:id/payment-proof', proofLimiter, (req, res) => {
+  app.post('/api/orders/:id/payment-proof', proofLimiter, async (req, res) => {
     if (!payment.manual) return res.status(404).json({ error: 'Not found' });
     const o = store.get(req.params.id);
     if (!o) return res.status(404).json({ error: 'Order not found' });
@@ -198,10 +255,6 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
       return res.status(400).json({ error: 'Attach a screenshot of your payment receipt (or enter the journal number).' });
     }
     if (txnRef && !TXN_REF.test(txnRef)) return res.status(400).json({ error: 'That journal / reference number does not look right.' });
-    if (txnRef) {
-      const dupe = store.list().find((x) => x.txnRef === txnRef && x.id !== o.id && x.status !== 'payment_failed');
-      if (dupe) return res.status(409).json({ error: 'This reference number was already used for another order.' });
-    }
 
     let receiptFile = null;
     if (req.body.screenshot && receiptsDir) {
@@ -209,25 +262,34 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
       if (r.error) return res.status(400).json({ error: r.error.replace('Photo', 'Screenshot') });
       receiptFile = r.file;
     }
+    const receiptPath = receiptFile ? path.join(receiptsDir, receiptFile) : null;
+
+    const check = await checkReceipt(o, { typedRef: txnRef, imageFile: receiptPath });
+    if (check.error) {
+      if (receiptPath) fs.rm(receiptPath, { force: true }, () => {});
+      return res.status(409).json({ error: check.error });
+    }
 
     const updated = store.transition(o.id, 'pending_payment', 'awaiting_verification', {
-      txnRef,
+      ...check.patch,
       receiptFile,
       paymentSubmittedAt: new Date().toISOString(),
     });
     if (!updated) return res.status(409).json({ error: 'Payment was already submitted for this order.' });
+    const shownRef = updated.txnRef;
     if (updated.chatId) {
       chat.post(updated.chatId, {
         from: 'buyer',
-        text: `💳 I have paid for ${updated.item}\nAmount: ${money(amountDue(updated))}` + (updated.amountReceived ? ` (remaining of ${money(updated.amount)})` : '') + (txnRef ? `\nJournal no.: ${txnRef}` : ''),
+        text: `💳 I have paid for ${updated.item}\nAmount: ${money(amountDue(updated))}` + (updated.amountReceived ? ` (remaining of ${money(updated.amount)})` : '') + (shownRef ? `\nJournal no.: ${shownRef}` : ''),
         image: receiptFile ? `receipts/${receiptFile}` : null,
       });
       chat.post(updated.chatId, {
         from: 'system',
         text: '⏳ Thanks! We are checking your payment. Your diamonds will be sent to your game account automatically once it is confirmed.',
       });
+      postAdminNotes(updated.chatId, check.adminNotes);
     }
-    if (alertOn('payments')) alerts.paymentSubmitted(updated, receiptFile ? path.join(receiptsDir, receiptFile) : null);
+    if (alertOn('payments')) alerts.paymentSubmitted(updated, receiptPath);
     res.json(publicOrder(updated));
   });
 
@@ -396,7 +458,33 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
   const ACTIONS = {
     // Payment seen in the bank app -> start delivery.
     // Also allowed straight from "unpaid": e.g. the money is in the bank but the buyer sent nothing.
-    approve: (id) => (store.get(id)?.status === 'pending_payment' ? deliver(id, 'pending_payment', {}) : deliver(id, 'awaiting_verification', {})),
+    approve: (id) => {
+      const cur = store.get(id);
+      const clash = journalUsedBy(cur.txnRef, id);
+      if (clash) {
+        const e = new Error(`Journal no. ${cur.txnRef} is already used by order ${clash.id} (${clash.item}, ${clash.userId}). Check the receipt.`);
+        e.status = 400;
+        throw e;
+      }
+      return cur.status === 'pending_payment' ? deliver(id, 'pending_payment', {}) : deliver(id, 'awaiting_verification', {});
+    },
+    // Admin enters / corrects the journal number (e.g. when it could not be read from the screenshot).
+    journal: (id, note, body) => {
+      const ref = String(body.txnRef || '').trim().toUpperCase();
+      if (!TXN_REF.test(ref)) {
+        const e = new Error('Enter a valid journal / reference number.');
+        e.status = 400;
+        throw e;
+      }
+      const clash = journalUsedBy(ref, id);
+      if (clash) {
+        const e = new Error(`Journal no. ${ref} is already used by order ${clash.id} (${clash.item}, ${clash.userId}).`);
+        e.status = 400;
+        throw e;
+      }
+      const cur = store.get(id);
+      return store.update(id, { txnRef: ref, journalHistory: uniq([...(cur.journalHistory || []), ref]) });
+    },
     reject: (id, note) => {
       const o = store.transition(id, 'awaiting_verification', 'payment_failed', { note: note || 'Payment could not be verified.' });
       if (o) notify(o, `❌ Payment could not be verified${note ? `: ${note}` : '.'}`, 'buyer');
@@ -449,10 +537,17 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
   });
 
   // A photo sent in the chat while the buyer has an unpaid order counts as their payment receipt.
-  function acceptChatReceipt(c, msg) {
+  async function acceptChatReceipt(c, msg) {
     const orderId = [...(c.orderIds || [])].reverse().find((id) => store.get(id)?.status === 'pending_payment');
     if (!orderId) return;
+    const imageFile = chat.imagePath(msg);
+    const check = await checkReceipt(store.get(orderId), { imageFile });
+    if (check.error) {
+      chat.post(c.id, { from: 'system', audience: 'buyer', text: `⚠️ ${check.error}` });
+      return;
+    }
     const o = store.transition(orderId, 'pending_payment', 'awaiting_verification', {
+      ...check.patch,
       paymentSubmittedAt: new Date().toISOString(),
       receiptChatMessageId: msg.id,
     });
@@ -460,9 +555,10 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     chat.post(c.id, {
       from: 'system',
       audience: 'admin',
-      text: `⏳ Got your receipt for ${o.item} (${money(amountDue(o))}). We are checking your payment, and your diamonds will be sent automatically once it is confirmed.`,
+      text: `⏳ Got your receipt for ${o.item} (${money(amountDue(o))})${o.txnRef ? `, journal no. ${o.txnRef}` : ''}. We are checking your payment, and your diamonds will be sent automatically once it is confirmed.`,
     });
-    if (alertOn('payments')) alerts.paymentSubmitted(o, chat.imagePath(msg));
+    postAdminNotes(c.id, check.adminNotes);
+    if (alertOn('payments')) alerts.paymentSubmitted(o, imageFile);
   }
 
   mountChatRoutes(app, {
@@ -472,7 +568,7 @@ function createApp({ store, chats, payment, supplier, dataDir = null, rateLimits
     rateLimit: limiter,
     adminSummary: (o) => o,
     onBuyerMessage: (c, msg) => {
-      if (msg.image) acceptChatReceipt(c, msg);
+      if (msg.image) acceptChatReceipt(c, msg).catch((e) => console.error('chat receipt', e));
       if (alertOn('messages')) alerts.buyerMessage(c, msg, chat.imagePath(msg));
     },
   });
